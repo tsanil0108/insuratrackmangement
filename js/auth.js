@@ -2,13 +2,17 @@
 
 const authUtils = {
   getToken: () => localStorage.getItem('insura_token'),
+
   getUser: () => {
     try { return JSON.parse(localStorage.getItem('insura_user') || 'null'); } catch { return null; }
   },
+
   getRole: () => {
     const u = authUtils.getUser();
-    return u ? u.role : null;
+    if (!u || !u.role) return null;
+    return u.role.replace('ROLE_', '');
   },
+
   isAdmin: () => authUtils.getRole() === 'ADMIN',
   isUser: () => authUtils.getRole() === 'USER',
 
@@ -48,7 +52,7 @@ async function handleLogin(e) {
   const email = document.getElementById('email').value.trim();
   const password = document.getElementById('password').value;
 
-  if (!email || !password) { showToast('Please fill in all fields', 'warning'); return; }
+  if (!email || !password) { window.showToast('Please fill in all fields', 'warning'); return; }
 
   const btn = document.getElementById('login-btn');
   btn.innerHTML = '<span class="inline-spinner"></span> Signing in...';
@@ -61,7 +65,7 @@ async function handleLogin(e) {
 
   if (data && data.token) {
     authUtils.store(data);
-    showToast(`Welcome back, ${data.name}!`, 'success');
+    window.showToast(`Welcome back, ${data.name}!`, 'success');
     setTimeout(() => { window.location.href = 'index.html'; }, 500);
   }
 }
@@ -74,8 +78,8 @@ async function handleRegister(e) {
   const password = document.getElementById('password').value;
   const adminKey = document.getElementById('adminKey').value.trim();
 
-  if (!name || !email || !password) { showToast('Please fill in all required fields', 'warning'); return; }
-  if (password.length < 6) { showToast('Password must be at least 6 characters', 'warning'); return; }
+  if (!name || !email || !password) { window.showToast('Please fill in all required fields', 'warning'); return; }
+  if (password.length < 6) { window.showToast('Password must be at least 6 characters', 'warning'); return; }
 
   const btn = document.getElementById('register-btn');
   btn.innerHTML = '<span class="inline-spinner"></span> Creating account...';
@@ -91,12 +95,12 @@ async function handleRegister(e) {
 
   if (data && data.token) {
     authUtils.store(data);
-    showToast(`Account created! Welcome, ${data.name}!`, 'success');
+    window.showToast(`Account created! Welcome, ${data.name}!`, 'success');
     setTimeout(() => { window.location.href = 'index.html'; }, 500);
   }
 }
 
-// Password visibility toggle
+// ─── PASSWORD TOGGLE ──────────────────────────────────────
 function initPasswordToggle() {
   document.querySelectorAll('.eye-toggle').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -109,3 +113,5 @@ function initPasswordToggle() {
     });
   });
 }
+
+console.log('Auth module loaded');

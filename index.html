@@ -2,32 +2,196 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>InsuraTrack — Insurance Management</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="InsuraTrack - Complete Insurance Management System">
+  <meta name="theme-color" content="#3b82f6">
+  <title>InsuraTrack — Insurance Management System</title>
+  
+  <!-- Preconnect for faster font loading -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  
+  <!-- Stylesheets -->
   <link rel="stylesheet" href="css/global.css">
-  <link rel="stylesheet" href="css/navbar.css">
   <link rel="stylesheet" href="css/dashboard.css">
+  <link rel="stylesheet" href="css/layout.css">
+  
   <style>
-    #app { display: contents; }
+    /* Initial loading state - prevents flash of unstyled content */
+    #app {
+      min-height: 100vh;
+      background: var(--bg-base, #f8fafc);
+    }
+    
+    /* Theme toggle positioning fix */
+    .theme-toggle {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 1000;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 40px;
+      padding: 6px;
+      display: flex;
+      gap: 4px;
+      cursor: pointer;
+      box-shadow: var(--shadow-md);
+      backdrop-filter: blur(10px);
+      transition: all var(--transition-fast);
+    }
+    
+    .theme-toggle:hover {
+      transform: scale(1.05);
+      box-shadow: var(--shadow-lg);
+    }
+    
+    .theme-option {
+      padding: 8px 16px;
+      border-radius: 32px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      transition: all var(--transition-fast);
+      cursor: pointer;
+    }
+    
+    .theme-option.active {
+      background: var(--accent);
+      color: white;
+    }
+    
+    @media (max-width: 768px) {
+      .theme-toggle {
+        bottom: 16px;
+        right: 16px;
+        padding: 4px;
+      }
+      
+      .theme-option {
+        padding: 6px 12px;
+        font-size: 0.75rem;
+      }
+    }
   </style>
 </head>
 <body>
   <div id="app">
-    <!-- Rendered by script.js -->
-    <div style="display:flex;align-items:center;justify-content:center;min-height:100vh">
+    <!-- Loading Spinner -->
+    <div class="empty-state" style="margin-top:48px;background:transparent;border:none;">
       <div class="spinner"></div>
+      <p style="margin-top:16px; color:var(--text-muted);">Loading InsuraTrack...</p>
     </div>
   </div>
 
-  <!-- Load all JS modules in dependency order -->
+  <!-- Theme Toggle Button -->
+  <div class="theme-toggle" id="themeToggle" onclick="toggleTheme()">
+    <span class="theme-option" data-theme="light" id="themeLight">🌞 Light</span>
+    <span class="theme-option" data-theme="dark" id="themeDark">🌙 Dark</span>
+  </div>
+
+  <script>
+    // Theme Management
+    function initTheme() {
+      const savedTheme = localStorage.getItem('theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const theme = savedTheme || (prefersDark ? 'dark' : 'light');
+      
+      if (theme === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      } else {
+        document.documentElement.removeAttribute('data-theme');
+      }
+      
+      updateThemeToggleUI(theme);
+    }
+    
+    function updateThemeToggleUI(theme) {
+      const lightOption = document.getElementById('themeLight');
+      const darkOption = document.getElementById('themeDark');
+      
+      if (lightOption && darkOption) {
+        if (theme === 'dark') {
+          lightOption.classList.remove('active');
+          darkOption.classList.add('active');
+        } else {
+          lightOption.classList.add('active');
+          darkOption.classList.remove('active');
+        }
+      }
+    }
+    
+    window.toggleTheme = function() {
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      const newTheme = isDark ? 'light' : 'dark';
+      
+      if (newTheme === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+        localStorage.setItem('theme', 'dark');
+      } else {
+        document.documentElement.removeAttribute('data-theme');
+        localStorage.setItem('theme', 'light');
+      }
+      
+      updateThemeToggleUI(newTheme);
+      
+      // Optional: Dispatch event for other components to react
+      window.dispatchEvent(new CustomEvent('themeChanged', { detail: { theme: newTheme } }));
+    };
+    
+    // Initialize theme before anything else
+    initTheme();
+  </script>
+
+  <!-- JavaScript Modules - Load order matters -->
+  <script src="js/utils.js"></script>
   <script src="js/api.js"></script>
   <script src="js/auth.js"></script>
-  <script src="js/utils.js"></script>
   <script src="js/dashboard.js"></script>
   <script src="js/policies.js"></script>
   <script src="js/payments.js"></script>
   <script src="js/companies.js"></script>
-  <script src="js/script.js"></script>
+  <script src="js/providers.js"></script>
   <script src="js/types.js"></script>
+  <script src="js/reminders.js"></script>
+  <script src="js/export.js"></script>
+  <script src="js/recycle.js"></script>
+  <script src="js/script.js"></script>
+  
+  <script>
+    // Handle offline status
+    window.addEventListener('online', () => {
+      console.log('Back online');
+      if (window.showToast) {
+        window.showToast('Connection restored!', 'success');
+      }
+    });
+    
+    window.addEventListener('offline', () => {
+      console.log('Offline');
+      if (window.showToast) {
+        window.showToast('You are offline. Please check your connection.', 'warning');
+      }
+    });
+    
+    // Handle unhandled errors
+    window.addEventListener('error', (event) => {
+      console.error('Global error:', event.error);
+      if (window.showToast && !event.message?.includes('ResizeObserver')) {
+        window.showToast('An unexpected error occurred. Please refresh the page.', 'error');
+      }
+    });
+    
+    // Handle unhandled promise rejections
+    window.addEventListener('unhandledrejection', (event) => {
+      console.error('Unhandled rejection:', event.reason);
+      if (window.showToast) {
+        window.showToast(event.reason?.message || 'An unexpected error occurred', 'error');
+      }
+    });
+    
+    // Log successful app load
+    console.log('🚀 InsuraTrack App Loaded Successfully');
+  </script>
 </body>
 </html>

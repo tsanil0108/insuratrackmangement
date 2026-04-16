@@ -4,7 +4,6 @@ async function loadDashboard() {
   const data = await api.get('/dashboard');
   if (!data) return;
 
-  // Stats cards
   document.getElementById('dash-content').innerHTML = `
     <div class="stats-grid">
       ${statCard('Total Users', data.totalUsers ?? 0, 'blue',
@@ -45,7 +44,9 @@ async function loadDashboard() {
           <span class="text-muted">Today</span>
         </div>
         <div id="reminders-list">
-          <div class="empty-state"><p>Loading reminders...</p></div>
+          <div class="empty-state" style="background:transparent;border:none;padding:24px;">
+            <p>Loading reminders...</p>
+          </div>
         </div>
       </div>
       <div class="card">
@@ -66,6 +67,10 @@ async function loadDashboard() {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
               Manage Companies
             </button>
+            <button class="btn btn-ghost" style="justify-content:flex-start" onclick="navigate('reminders')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+              View Reminders
+            </button>
             <button class="btn btn-ghost" style="justify-content:flex-start" onclick="navigate('export')">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               Export Data
@@ -79,28 +84,29 @@ async function loadDashboard() {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/></svg>
               My Payments
             </button>
+            <button class="btn btn-ghost" style="justify-content:flex-start" onclick="navigate('reminders')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+              My Reminders
+            </button>
           `}
         </div>
       </div>
     </div>
   `;
 
-  // Charts
   drawPolicyChart(data);
   drawPaymentChart(data);
-
-  // Load reminders
   loadRemindersWidget();
 }
 
 function statCard(label, value, color, icon, sub) {
   const colorMap = {
-    blue: { icon: 'var(--accent-soft)', text: 'var(--accent)' },
+    blue:   { icon: 'var(--accent-soft)', text: 'var(--accent)' },
     purple: { icon: 'var(--purple-soft)', text: 'var(--purple)' },
-    cyan: { icon: 'var(--cyan-soft)', text: 'var(--cyan)' },
-    green: { icon: 'var(--green-soft)', text: 'var(--green)' },
+    cyan:   { icon: 'var(--cyan-soft)',   text: 'var(--cyan)'   },
+    green:  { icon: 'var(--green-soft)',  text: 'var(--green)'  },
     yellow: { icon: 'var(--yellow-soft)', text: 'var(--yellow)' },
-    red: { icon: 'var(--red-soft)', text: 'var(--red)' },
+    red:    { icon: 'var(--red-soft)',    text: 'var(--red)'    },
   };
   const c = colorMap[color] || colorMap.blue;
   return `
@@ -123,13 +129,19 @@ function drawPolicyChart(data) {
   canvas.width = W; canvas.height = H;
 
   const items = [
-    { label: 'Active', value: data.activePolicies ?? 0, color: '#34d399' },
-    { label: 'Expiring', value: data.expiringSoonPolicies ?? 0, color: '#a78bfa' },
-    { label: 'Expired', value: (data.totalPolicies ?? 0) - (data.activePolicies ?? 0) - (data.expiringSoonPolicies ?? 0), color: '#4a5568' },
+    { label: 'Active',   value: data.activePolicies ?? 0,        color: '#10b981' },
+    { label: 'Expiring', value: data.expiringSoonPolicies ?? 0,   color: '#8b5cf6' },
+    { label: 'Expired',  value: Math.max(0, (data.totalPolicies ?? 0) - (data.activePolicies ?? 0) - (data.expiringSoonPolicies ?? 0)), color: '#94a3b8' },
   ];
 
   const total = items.reduce((s, i) => s + i.value, 0);
-  if (total === 0) { ctx.fillStyle = '#4a5568'; ctx.font = '14px Space Grotesk'; ctx.fillText('No data', W/2 - 30, H/2); return; }
+  if (total === 0) {
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '14px Space Grotesk, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('No data', W / 2, H / 2);
+    return;
+  }
 
   const cx = 90, cy = H / 2, r = 65, ir = 40;
   let angle = -Math.PI / 2;
@@ -143,41 +155,45 @@ function drawPolicyChart(data) {
     ctx.closePath();
     ctx.fillStyle = item.color;
     ctx.fill();
-    ctx.strokeStyle = '#0a0d14';
+    ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2;
     ctx.stroke();
     angle += sweep;
   });
 
-  // Donut hole
+  // Donut hole — use white (light theme)
   ctx.beginPath();
   ctx.arc(cx, cy, ir, 0, 2 * Math.PI);
-  ctx.fillStyle = 'var(--bg-card, #1a2035)';
+  ctx.fillStyle = '#ffffff';
   ctx.fill();
 
   // Center text
-  ctx.fillStyle = '#e8edf5';
-  ctx.font = 'bold 18px Space Grotesk';
+  ctx.fillStyle = '#0f172a';
+  ctx.font = 'bold 18px Space Grotesk, sans-serif';
   ctx.textAlign = 'center';
   ctx.fillText(total, cx, cy + 4);
-  ctx.font = '11px Space Grotesk';
-  ctx.fillStyle = '#8896b0';
+  ctx.font = '11px Space Grotesk, sans-serif';
+  ctx.fillStyle = '#94a3b8';
   ctx.fillText('Total', cx, cy + 18);
 
   // Legend
-  const lx = 180, ly = 40;
+  const lx = 180, ly = 30;
   items.forEach((item, i) => {
-    const y = ly + i * 36;
+    const y = ly + i * 38;
     ctx.fillStyle = item.color;
     ctx.beginPath();
-    ctx.roundRect(lx, y, 10, 10, 3);
+    if (ctx.roundRect) {
+      ctx.roundRect(lx, y, 10, 10, 3);
+    } else {
+      ctx.rect(lx, y, 10, 10);
+    }
     ctx.fill();
-    ctx.fillStyle = '#8896b0';
-    ctx.font = '11px Space Grotesk';
+    ctx.fillStyle = '#475569';
+    ctx.font = '11px Space Grotesk, sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText(item.label, lx + 15, y + 9);
-    ctx.fillStyle = '#e8edf5';
-    ctx.font = 'bold 16px Space Grotesk';
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 16px Space Grotesk, sans-serif';
     ctx.fillText(item.value, lx + 15, y + 26);
   });
 }
@@ -190,37 +206,35 @@ function drawPaymentChart(data) {
   canvas.width = W; canvas.height = H;
 
   const items = [
-    { label: 'Paid', value: data.paidPayments ?? 0, color: '#34d399' },
-    { label: 'Pending', value: data.pendingPayments ?? 0, color: '#fbbf24' },
-    { label: 'Overdue', value: data.overduePayments ?? 0, color: '#f87171' },
+    { label: 'Paid',    value: data.paidPayments    ?? 0, color: '#10b981' },
+    { label: 'Pending', value: data.pendingPayments ?? 0, color: '#f59e0b' },
+    { label: 'Overdue', value: data.overduePayments ?? 0, color: '#ef4444' },
   ];
 
   const max = Math.max(...items.map(i => i.value), 1);
-  const bw = 40, gap = 30, padL = 40, padB = 30, chartH = H - padB - 20;
-
-  ctx.fillStyle = '#4a5568';
-  ctx.font = '11px Space Grotesk';
+  const bw = 44, gap = 28, padL = 20, padB = 30, chartH = H - padB - 20;
 
   items.forEach((item, i) => {
     const x = padL + i * (bw + gap);
-    const bh = (item.value / max) * chartH;
+    const bh = Math.max((item.value / max) * chartH, item.value > 0 ? 4 : 0);
     const y = H - padB - bh;
 
-    // Bar
     ctx.fillStyle = item.color;
     ctx.beginPath();
-    ctx.roundRect(x, y, bw, bh, [4, 4, 0, 0]);
+    if (ctx.roundRect) {
+      ctx.roundRect(x, y, bw, bh, [4, 4, 0, 0]);
+    } else {
+      ctx.rect(x, y, bw, bh);
+    }
     ctx.fill();
 
-    // Value
-    ctx.fillStyle = '#e8edf5';
-    ctx.font = 'bold 13px Space Grotesk';
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 13px Space Grotesk, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(item.value, x + bw / 2, y - 6);
 
-    // Label
-    ctx.fillStyle = '#8896b0';
-    ctx.font = '11px Space Grotesk';
+    ctx.fillStyle = '#475569';
+    ctx.font = '11px Space Grotesk, sans-serif';
     ctx.fillText(item.label, x + bw / 2, H - 8);
   });
 }
@@ -229,50 +243,129 @@ async function loadRemindersWidget() {
   const list = document.getElementById('reminders-list');
   if (!list) return;
 
-  const data = await api.get('/reminders');
+  const isAdmin = authUtils.isAdmin();
+  const endpoint = isAdmin ? '/reminders/active' : '/reminders/my/active';
+
+  const data = await api.get(endpoint);
   if (!data || !data.length) {
-    list.innerHTML = '<div class="empty-state"><p>No active reminders</p></div>';
+    list.innerHTML = `
+      <div class="empty-state" style="background:transparent;border:none;padding:24px;">
+        <p>No active reminders</p>
+      </div>`;
     return;
   }
 
   list.innerHTML = data.slice(0, 5).map(r => `
     <div class="reminder-item ${(r.severity || '').toLowerCase()}">
       <div>
-        <div style="font-size:0.825rem;font-weight:500;margin-bottom:3px">${r.message}</div>
+        <div style="font-size:0.825rem;font-weight:500;margin-bottom:3px">${window.escapeHtml(r.message)}</div>
         <div style="font-size:0.75rem;color:var(--text-muted)">${fmt.date(r.reminderDate)} · ${r.type}</div>
       </div>
     </div>
   `).join('');
 }
 
+// ─── NOTIFICATIONS ────────────────────────────────────────
+
 async function loadNotifications() {
-  const data = await api.get('/reminders');
-  const dot = document.getElementById('notif-dot');
-  const list = document.getElementById('notif-list');
-  if (!list) return;
+  const notifList = document.getElementById('notif-list');
+  if (!notifList) return;
 
-  if (!data || !data.length) {
-    if (dot) dot.style.display = 'none';
-    list.innerHTML = '<div class="notif-empty">All caught up! 🎉</div>';
-    return;
-  }
+  try {
+    const notifications = await api.get('/notifications') || [];
+    const notifDot = document.getElementById('notif-dot');
 
-  if (dot) dot.style.display = 'block';
-  list.innerHTML = data.slice(0, 10).map(r => {
-    const colors = { HIGH: ['var(--red-soft)','var(--red)'], MEDIUM: ['var(--yellow-soft)','var(--yellow)'], LOW: ['var(--green-soft)','var(--green)'] };
-    const [bg, fg] = colors[r.severity] || colors.LOW;
-    return `
-      <div class="notif-item">
-        <div class="notif-icon" style="background:${bg};color:${fg}">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>
+    const unreadCount = notifications.filter(n => !n.read).length;
+    if (notifDot) notifDot.style.display = unreadCount > 0 ? 'block' : 'none';
+
+    if (!notifications.length) {
+      notifList.innerHTML = `
+        <div class="notif-empty">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+            <path d="M13.73 21a2 2 0 01-3.46 0"/>
           </svg>
+          <p>No notifications</p>
         </div>
-        <div class="notif-text">
-          <p>${r.message}</p>
-          <div class="time">${fmt.date(r.reminderDate)}</div>
-        </div>
+      `;
+      return;
+    }
+
+    notifList.innerHTML = `
+      <div style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:0.75rem;font-weight:600;">Notifications (${unreadCount} unread)</span>
+        <button class="btn btn-ghost btn-sm" onclick="clearAllNotifications()" style="font-size:0.7rem;">Clear All</button>
       </div>
+      ${notifications.map(notif => `
+        <div class="notif-item ${notif.read ? '' : 'unread'}" data-id="${notif.id}" onclick="markNotificationRead('${notif.id}')">
+          <div class="notif-icon" style="background:${getNotifColor(notif.type)};color:white;font-size:14px;">
+            ${getNotifIcon(notif.type)}
+          </div>
+          <div class="notif-text">
+            <p>${window.escapeHtml(notif.message)}</p>
+            <div class="time">${fmt.date(notif.createdAt)}</div>
+          </div>
+          <button class="delete-notif" onclick="event.stopPropagation(); deleteNotification('${notif.id}')"
+            style="background:none;border:none;cursor:pointer;color:var(--text-muted);padding:4px;border-radius:4px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+      `).join('')}
     `;
-  }).join('');
+  } catch (error) {
+    console.error('Failed to load notifications:', error);
+    notifList.innerHTML = '<div class="notif-empty">Failed to load notifications</div>';
+  }
 }
+
+function getNotifColor(type) {
+  const colors = { REMINDER: '#3b82f6', PAYMENT: '#10b981', EXPIRY: '#ef4444', GENERAL: '#8b5cf6' };
+  return colors[type] || '#64748b';
+}
+
+function getNotifIcon(type) {
+  const icons = { REMINDER: '🔔', PAYMENT: '💰', EXPIRY: '⚠️', GENERAL: '📢' };
+  return icons[type] || '📌';
+}
+
+async function markNotificationRead(id) {
+  try {
+    await api.put(`/notifications/${id}/read`, {});
+    await loadNotifications();
+  } catch (error) {
+    console.error('Failed to mark as read:', error);
+  }
+}
+
+async function deleteNotification(id) {
+  window.showConfirm('Delete Notification', 'Delete this notification?', async () => {
+    const result = await api.del(`/notifications/${id}`);
+    if (result !== null) {
+      window.showToast('Notification deleted', 'success');
+      await loadNotifications();
+    }
+  });
+}
+
+async function clearAllNotifications() {
+  window.showConfirm('Clear All Notifications', 'Delete all notifications?', async () => {
+    try {
+      const notifications = await api.get('/notifications') || [];
+      await Promise.all(notifications.map(n => api.del(`/notifications/${n.id}`)));
+      window.showToast('All notifications cleared', 'success');
+      await loadNotifications();
+    } catch (error) {
+      window.showToast('Failed to clear notifications', 'error');
+    }
+  });
+}
+
+window.loadDashboard          = loadDashboard;
+window.loadNotifications      = loadNotifications;
+window.markNotificationRead   = markNotificationRead;
+window.deleteNotification     = deleteNotification;
+window.clearAllNotifications  = clearAllNotifications;
+
+console.log('Dashboard module loaded');
