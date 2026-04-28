@@ -1,16 +1,57 @@
-// reminders.js — Reminders module (Fixed delete functions)
+// reminders.js — Reminders module (Auto-generated reminders)
+// Reminders are automatically generated when policies are added/edited
 
-let remindersData    = [];
-let showingDismissed = false;
+let remindersData = [];
+
+// ─── HELPER: Extract policy number from message ───────────
+
+function extractPolicyNumberFromMessage(message, reminder) {
+  if (!message) return '—';
+  
+  // Try to extract policy number from message
+  // Pattern matches: "1234567" or "POL-123456" or any number sequence at the end
+  const patterns = [
+    /:\s*([A-Z0-9\-]+)$/i,           // Matches: "something: 1234567"
+    /policy\s*:\s*([A-Z0-9\-]+)/i,   // Matches: "policy: 1234567"
+    /policy\s+([A-Z0-9\-]+)/i,       // Matches: "policy 1234567"
+    /([A-Z0-9]{6,20})$/              // Matches: "1234567" at end
+  ];
+  
+  for (let pattern of patterns) {
+    const match = message.match(pattern);
+    if (match && match[1]) {
+      return match[1];
+    }
+  }
+  
+  // If still not found, try to find any 6-20 character alphanumeric string
+  const anyNumberMatch = message.match(/\b([A-Z0-9]{6,20})\b/);
+  if (anyNumberMatch) {
+    return anyNumberMatch[1];
+  }
+  
+  return '—';
+}
 
 // ─── LOAD ────────────────────────────────────────────────
 
 async function loadReminders() {
-  showingDismissed = false;
-  const isAdmin = authUtils.isAdmin();
-  const path = isAdmin ? '/reminders/active' : '/reminders/my/active';
+  const isAdmin = authUtils?.isAdmin() || false;
+  // Use 'v1/reminders' paths - only show active reminders
+  const path = isAdmin ? 'v1/reminders/active' : 'v1/reminders/my/active';
   const data = await api.get(path);
+  
+  console.log('Reminders loaded:', data);
+  
   remindersData = data || [];
+  
+  // Extract policy numbers from messages
+  for (let reminder of remindersData) {
+    if (!reminder.policyNumber && reminder.message) {
+      reminder.policyNumber = extractPolicyNumberFromMessage(reminder.message, reminder);
+    }
+  }
+  
   renderRemindersPage(isAdmin);
 }
 
@@ -20,6 +61,10 @@ function renderRemindersPage(isAdmin) {
       <div>
         <h2 class="section-title">Reminders</h2>
         <p class="text-muted" id="rem-count">${remindersData.length} active reminders</p>
+        <p class="text-muted" style="font-size:12px; margin-top:4px;">
+          💰 Payment reminders: 15, 7, 3 days before due | 
+          ⚠️ Expiry reminders: 30, 15, 7, 3 days before
+        </p>
       </div>
       <div class="flex items-center gap-8">
         <div class="search-bar">
@@ -28,31 +73,25 @@ function renderRemindersPage(isAdmin) {
           </svg>
           <input type="text" id="rem-search" placeholder="Search reminders...">
         </div>
-        <div class="flex gap-8">
-          <button class="btn btn-ghost btn-sm" onclick="window.toggleDismissedView()" id="show-dismissed-btn">
-            📋 Show Dismissed
-          </button>
-          ${isAdmin ? `
-            <button class="btn btn-secondary" onclick="window.triggerGenerate()">⚡ Auto Generate</button>
-            <button class="btn btn-primary"   onclick="window.openReminderModal()">🔔 Send Reminder</button>
-          ` : ''}
-        </div>
+        ${isAdmin ? `
+          <div class="flex gap-8">
+            <button class="btn btn-secondary" onclick="window.triggerGenerate()">⚡ Regenerate All</button>
+          </div>
+        ` : ''}
       </div>
     </div>
 
     <div class="tabs">
       <div class="tab active" data-filter="all"     onclick="window.filterReminders(this,'all')">All</div>
-      <div class="tab"        data-filter="PAYMENT"  onclick="window.filterReminders(this,'PAYMENT')">Payment Due</div>
-      <div class="tab"        data-filter="EXPIRY"   onclick="window.filterReminders(this,'EXPIRY')">Policy Expiry</div>
-      <div class="tab"        data-filter="RENEWAL"  onclick="window.filterReminders(this,'RENEWAL')">Renewal</div>
-      <div class="tab"        data-filter="GENERAL"  onclick="window.filterReminders(this,'GENERAL')">General</div>
+      <div class="tab"        data-filter="PAYMENT"  onclick="window.filterReminders(this,'PAYMENT')">💰 Payment Due</div>
+      <div class="tab"        data-filter="EXPIRY"   onclick="window.filterReminders(this,'EXPIRY')">⚠️ Policy Expiry</div>
     </div>
 
     <div class="table-wrapper">
       <table class="data-table">
         <thead>
           <tr>
-            <th>Policy</th>
+            <th>Policy Number</th>
             <th>Type</th>
             <th>Message</th>
             <th>Remind On</th>
@@ -64,34 +103,32 @@ function renderRemindersPage(isAdmin) {
         <tbody id="reminders-tbody">
           ${renderReminderRows(remindersData, isAdmin)}
         </tbody>
-      </table>
+    
     </div>
   `;
 
-  window.filterTable('rem-search', 'reminders-tbody');
+  setTimeout(() => {
+    const searchInput = document.getElementById('rem-search');
+    if (searchInput) {
+      searchInput.addEventListener('keyup', () => {
+        filterRemindersTable();
+      });
+    }
+  }, 100);
 }
 
-// ─── TOGGLE DISMISSED ─────────────────────────────────────
-
-async function toggleDismissedView() {
-  const isAdmin = authUtils.isAdmin();
-  const btn = document.getElementById('show-dismissed-btn');
-  showingDismissed = !showingDismissed;
-
-  const path = showingDismissed
-    ? (isAdmin ? '/reminders/dismissed'    : '/reminders/my/dismissed')
-    : (isAdmin ? '/reminders/active'       : '/reminders/my/active');
-
-  const data = await api.get(path);
-  remindersData = data || [];
-
-  btn.innerHTML = showingDismissed ? '📋 Show Active' : '📋 Show Dismissed';
-
-  const countEl = document.getElementById('rem-count');
-  if (countEl) countEl.textContent = `${remindersData.length} reminders`;
-
-  const tbody = document.getElementById('reminders-tbody');
-  if (tbody) tbody.innerHTML = renderReminderRows(getFilteredReminders(), isAdmin);
+function filterRemindersTable() {
+  const searchTerm = document.getElementById('rem-search')?.value.toLowerCase() || '';
+  const rows = document.querySelectorAll('#reminders-tbody tr');
+  
+  rows.forEach(row => {
+    const text = row.textContent.toLowerCase();
+    if (text.includes(searchTerm)) {
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  });
 }
 
 function getFilteredReminders() {
@@ -103,55 +140,89 @@ function getFilteredReminders() {
 // ─── RENDER ───────────────────────────────────────────────
 
 function renderReminderRows(data, isAdmin) {
-  if (!data.length) {
-    const msg = showingDismissed ? 'No dismissed reminders' : 'No active reminders';
-    return window.emptyState(msg, isAdmin ? 7 : 6);
+  if (!data || !data.length) {
+    const msg = 'No active reminders';
+    const extraMsg = !isAdmin ? '<p style="font-size:12px; margin-top:8px;">Reminders are auto-generated when policies are added.</p>' : '';
+    return `</tr><td colspan="${isAdmin ? 7 : 6}" style="text-align:center; padding:40px;">${msg}${extraMsg}</td></tr>`;
   }
 
-  return data.map(r => `
-    <tr>
-      <td><span class="mono" style="color:var(--accent);">${window.escapeHtml(r.policyNumber) || '—'}</span></td>
-      <td>${reminderTypeBadge(r.type)}</td>
-      <td style="max-width:250px;">${window.escapeHtml(r.message) || '—'}</td>
-      <td>${window.fmt.date(r.reminderDate)}</td>
-      <td>${severityBadge(r.severity)}</td>
-      <td>
-        ${r.dismissed
-          ? '<span class="badge badge-expired">✓ Dismissed</span>'
-          : '<span class="badge badge-active">Active</span>'}
-      </td>
+  return data.map(r => {
+    // Get policy number
+    let policyNumber = r.policyNumber;
+    if (!policyNumber || policyNumber === '—') {
+      policyNumber = extractPolicyNumberFromMessage(r.message, r);
+    }
+    
+    // Clean message to remove duplicate policy number display
+    let message = r.message || '—';
+    // Remove the policy number from the end of message if it appears
+    if (policyNumber !== '—' && message.includes(policyNumber)) {
+      // Remove trailing ": 1234567" or " 1234567"
+      message = message.replace(new RegExp(`:\\s*${policyNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`), '');
+      message = message.replace(new RegExp(`\\s+${policyNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`), '');
+      message = message.trim();
+    }
+    
+    // Format reminder date
+    let reminderDate = '—';
+    if (r.reminderDate) {
+      try {
+        reminderDate = window.fmt.date(r.reminderDate);
+      } catch(e) {
+        reminderDate = r.reminderDate;
+      }
+    }
+    
+    return `
+      <tr>
+        <td>
+          ${r.policyId ? `
+            <span class="mono" style="color:var(--accent); cursor:pointer;" onclick="window._goToPolicy('${r.policyId}')">
+              ${window.escapeHtml(policyNumber)}
+            </span>
+          ` : `
+            <span class="mono">${window.escapeHtml(policyNumber)}</span>
+          `}
+        </td>
+        <td>${reminderTypeBadge(r.type)}</td>
+        <td style="max-width:300px;">${window.escapeHtml(message)}</td>
+        <td>${reminderDate}</td>
+        <td>${severityBadge(r.severity)}</td>
+        <td>
+          ${!r.dismissed
+            ? '<span class="badge badge-active">● Active</span>'
+            : '<span class="badge badge-expired">✓ Dismissed</span>'}
+        </td>
       ${isAdmin ? `
         <td>
           <div class="flex gap-8">
-            ${!r.dismissed ? `
-              <button class="btn btn-ghost btn-sm" style="color:var(--green);"
-                onclick="window.dismissReminder('${r.id}')">✓ Dismiss</button>
-            ` : `
-              <button class="btn btn-ghost btn-sm" style="color:var(--accent);"
-                onclick="window.restoreReminder('${r.id}')">↺ Restore</button>
-            `}
             <button class="btn btn-danger btn-sm"
               onclick="window.permanentDeleteReminder('${r.id}')">🗑 Delete</button>
           </div>
-         </td>` : ''}
+        </td>
+      ` : ''}
     </tr>
-  `).join('');
+    `;
+  }).join('');
 }
 
 function reminderTypeBadge(type) {
   const map = {
-    PAYMENT: { label: 'Payment Due',      cls: 'badge-active'  },
-    EXPIRY:  { label: 'Policy Expiry',    cls: 'badge-red'     },
-    RENEWAL: { label: 'Renewal Reminder', cls: 'badge-purple'  },
-    GENERAL: { label: 'General',          cls: 'badge-gray'    },
+    PAYMENT: { label: '💰 Payment Due',      cls: 'badge-active'  },
+    EXPIRY:  { label: '⚠️ Policy Expiry',    cls: 'badge-red'     },
   };
   const t = map[type] || { label: type || '—', cls: 'badge-gray' };
   return `<span class="badge ${t.cls}">${t.label}</span>`;
 }
 
 function severityBadge(severity) {
-  const map = { HIGH: 'badge-red', MEDIUM: 'badge-yellow', LOW: 'badge-green' };
-  return `<span class="badge ${map[severity] || 'badge-gray'}">${severity || '—'}</span>`;
+  const map = { 
+    HIGH: 'badge-red', 
+    MEDIUM: 'badge-yellow', 
+    LOW: 'badge-green' 
+  };
+  const labels = { HIGH: '🔴 High', MEDIUM: '🟡 Medium', LOW: '🟢 Low' };
+  return `<span class="badge ${map[severity] || 'badge-gray'}">${labels[severity] || severity || '—'}</span>`;
 }
 
 // ─── FILTER ───────────────────────────────────────────────
@@ -161,241 +232,165 @@ function filterReminders(tab, type) {
   tab.classList.add('active');
   tab.dataset.filter = type;
 
-  const isAdmin = authUtils.isAdmin();
+  const isAdmin = authUtils?.isAdmin() || false;
+  const filteredData = getFilteredReminders();
   const tbody = document.getElementById('reminders-tbody');
-  if (tbody) tbody.innerHTML = renderReminderRows(getFilteredReminders(), isAdmin);
-}
-
-// ─── ACTIONS (FIXED DELETE) ──────────────────────────────────────────────
-
-async function dismissReminder(id) {
-  window.showConfirm('Dismiss Reminder', 'Dismiss this reminder? It will move to the dismissed list.', async () => {
-    const result = await api.put(`/reminders/${id}/dismiss`, {});
-    if (result !== null) {
-      window.showToast('Reminder dismissed', 'success');
-      showingDismissed ? await toggleDismissedView() : await loadReminders();
-    }
-  });
-}
-
-async function restoreReminder(id) {
-  const result = await api.put(`/reminders/${id}/restore`, {});
-  if (result !== null) {
-    window.showToast('Reminder restored', 'success');
-    showingDismissed ? await toggleDismissedView() : await loadReminders();
+  if (tbody) tbody.innerHTML = renderReminderRows(filteredData, isAdmin);
+  
+  // Re-apply search filter
+  const searchTerm = document.getElementById('rem-search')?.value.toLowerCase();
+  if (searchTerm) {
+    filterRemindersTable();
   }
 }
 
-// ✅ FIXED DELETE FUNCTION - Direct fetch with better error handling
+// ─── ACTIONS (ADMIN ONLY) ─────────────────────────────────
+
 async function permanentDeleteReminder(id) {
-  console.log('🔴 Delete reminder called for ID:', id);
-  
-  const confirmed = confirm('Delete reminder permanently? This action cannot be undone.');
-  
-  if (!confirmed) {
-    console.log('User cancelled delete');
+  const isAdmin = authUtils?.isAdmin() || false;
+  if (!isAdmin) {
+    window.showToast('Only admin can delete reminders', 'error');
     return;
   }
   
+  const confirmed = confirm('⚠️ Delete reminder permanently? This action cannot be undone.');
+  if (!confirmed) return;
+  
   try {
     window.showSpinner();
-    console.log('📤 Sending DELETE request for reminder:', id);
-    
-    const token = localStorage.getItem('insura_token');
-    const response = await fetch(`http://localhost:8080/api/reminders/${id}/permanent`, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-    
-    console.log('📥 Response status:', response.status);
+    const deletedBy = localStorage.getItem('insura_email') || 'admin';
+    const result = await api.del(`v1/reminders/${id}?deletedBy=${deletedBy}`);
     window.hideSpinner();
     
-    if (response.ok) {
-      window.showToast('Reminder permanently deleted', 'success');
-      console.log('✅ Reminder deleted, reloading...');
-      showingDismissed ? await toggleDismissedView() : await loadReminders();
+    if (result !== null) {
+      window.showToast('Reminder deleted permanently', 'success');
+      await loadReminders();
     } else {
-      const errorText = await response.text();
-      console.error('❌ Delete failed:', errorText);
-      window.showToast(errorText || 'Failed to delete reminder', 'error');
+      window.showToast('Failed to delete reminder', 'error');
     }
   } catch (error) {
     window.hideSpinner();
-    console.error('❌ Delete error:', error);
     window.showToast(error.message || 'Failed to delete reminder', 'error');
   }
 }
 
-async function dismissAllByPolicy(policyId) {
-  if (!policyId) return;
-  window.showConfirm('Dismiss All', 'Dismiss all active reminders for this policy?', async () => {
-    const result = await api.put(`/reminders/policy/${policyId}/dismiss-all`, {});
-    if (result !== null) {
-      window.showToast('All reminders dismissed for this policy', 'success');
-      await loadReminders();
-    }
-  });
-}
-
 async function triggerGenerate() {
-  const result = await api.post('/reminders/generate', {});
-  if (result !== null) {
-    window.showToast('Reminders generated successfully!', 'success');
-    await loadReminders();
-  }
-}
-
-// ─── CREATE REMINDER MODAL ────────────────────────────────
-
-function buildReminderModal() {
-  if (document.getElementById('reminder-modal')) return;
-
-  const modal = document.createElement('div');
-  modal.id = 'reminder-modal';
-  modal.className = 'modal';
-  modal.style.display = 'none';
-  modal.innerHTML = `
-    <div class="modal-content" style="max-width:500px;">
-      <div class="modal-header">
-        <h3>Send Reminder</h3>
-        <button class="modal-close" onclick="window.closeModal('reminder-modal')">&times;</button>
-      </div>
-      <div class="modal-body">
-        <div class="form-grid">
-
-          <div class="form-group" id="rem-policy-dropdown-group">
-            <label>Policy *</label>
-            <select id="rem-policy-id"></select>
-          </div>
-
-          <div class="form-group" id="rem-policy-display-group" style="display:none;">
-            <label>Policy</label>
-            <input type="text" id="rem-policy-display" disabled style="opacity:.6;">
-            <input type="hidden" id="rem-policy-id-hidden">
-          </div>
-
-          <div class="form-group">
-            <label>Reminder Type *</label>
-            <select id="rem-type">
-              <option value="PAYMENT">Payment Due</option>
-              <option value="EXPIRY">Policy Expiry</option>
-              <option value="RENEWAL">Renewal Reminder</option>
-              <option value="GENERAL">General</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Remind On *</label>
-            <input type="date" id="rem-date">
-          </div>
-          <div class="form-group">
-            <label>Severity</label>
-            <select id="rem-severity">
-              <option value="HIGH">🔴 High</option>
-              <option value="MEDIUM" selected>🟡 Medium</option>
-              <option value="LOW">🟢 Low</option>
-            </select>
-          </div>
-          <div class="form-group" style="grid-column:1/-1;">
-            <label>Message *</label>
-            <textarea id="rem-message" rows="3" placeholder="Enter reminder message..."></textarea>
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-ghost" onclick="window.closeModal('reminder-modal')">Cancel</button>
-        <button class="btn btn-primary" onclick="window.submitReminder()">🔔 Send Reminder</button>
-      </div>
-    </div>`;
-  document.body.appendChild(modal);
-}
-
-function openReminderModal(policyId, policyNumber) {
-  buildReminderModal();
-
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const dateEl = document.getElementById('rem-date');
-  if (dateEl) dateEl.value = tomorrow.toISOString().split('T')[0];
-
-  const msgEl = document.getElementById('rem-message');
-  if (msgEl) msgEl.value = '';
-  document.getElementById('rem-type').value     = 'PAYMENT';
-  document.getElementById('rem-severity').value = 'MEDIUM';
-
-  const dropdownGroup = document.getElementById('rem-policy-dropdown-group');
-  const displayGroup  = document.getElementById('rem-policy-display-group');
-
-  if (policyId) {
-    if (dropdownGroup) dropdownGroup.style.display = 'none';
-    if (displayGroup)  displayGroup.style.display  = '';
-    const displayEl = document.getElementById('rem-policy-display');
-    const hiddenEl  = document.getElementById('rem-policy-id-hidden');
-    if (displayEl) displayEl.value = policyNumber || policyId;
-    if (hiddenEl)  hiddenEl.value  = policyId;
-  } else {
-    if (dropdownGroup) dropdownGroup.style.display = '';
-    if (displayGroup)  displayGroup.style.display  = 'none';
-    window.loadDropdown('rem-policy-id', '/policies', 'policyNumber');
-  }
-
-  window.openModal('reminder-modal');
-}
-
-let _isSubmitting = false;
-
-async function submitReminder() {
-  if (_isSubmitting) { window.showToast('Please wait...', 'warning'); return; }
-
-  const dropdownGroup = document.getElementById('rem-policy-dropdown-group');
-  const usingDropdown = dropdownGroup && dropdownGroup.style.display !== 'none';
-
-  const policyId = usingDropdown
-    ? document.getElementById('rem-policy-id')?.value
-    : document.getElementById('rem-policy-id-hidden')?.value;
-
-  const type         = document.getElementById('rem-type')?.value;
-  const reminderDate = document.getElementById('rem-date')?.value;
-  const message      = document.getElementById('rem-message')?.value.trim();
-  const severity     = document.getElementById('rem-severity')?.value;
-
-  if (!policyId)     { window.showToast('Please select a policy', 'warning');       return; }
-  if (!reminderDate) { window.showToast('Please select a reminder date', 'warning'); return; }
-  if (!message)      { window.showToast('Please enter a message', 'warning');        return; }
-
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  if (new Date(reminderDate) < today) {
-    window.showToast('Reminder date cannot be in the past', 'warning');
+  const isAdmin = authUtils?.isAdmin() || false;
+  if (!isAdmin) {
+    window.showToast('Only admin can generate reminders', 'error');
     return;
   }
-
-  _isSubmitting = true;
+  
+  const confirmed = confirm('⚠️ This will regenerate all reminders for existing policies. Continue?');
+  if (!confirmed) return;
+  
   try {
-    const result = await api.post('/reminders', { policyId, type, reminderDate, message, severity });
-    if (result) {
-      window.showToast('Reminder created successfully!', 'success');
-      window.closeModal('reminder-modal');
-      if (typeof loadReminders === 'function') await loadReminders();
+    window.showSpinner();
+    const result = await api.post('v1/reminders/generate', {});
+    window.hideSpinner();
+    
+    if (result !== null) {
+      window.showToast('Reminders regenerated successfully!', 'success');
+      await loadReminders();
+    } else {
+      window.showToast('Failed to generate reminders', 'error');
     }
-  } finally {
-    _isSubmitting = false;
+  } catch (error) {
+    window.hideSpinner();
+    window.showToast(error.message || 'Failed to generate reminders', 'error');
   }
+}
+
+// Go to policy detail
+window._goToPolicy = async function(policyId) {
+  if (!policyId) return;
+  if (window.navigate) window.navigate('policies');
+  setTimeout(async () => {
+    if (window.showPolicyDetail) await window.showPolicyDetail(policyId);
+  }, 400);
+};
+
+// ─── AUTO-GENERATE REMINDERS (Called after policy create/update) ───
+
+async function generateRemindersForPolicy(policyId) {
+  try {
+    window.showSpinner();
+    const result = await api.post(`v1/reminders/policy/${policyId}/generate`, {});
+    window.hideSpinner();
+    
+    if (result !== null) {
+      console.log(`✅ Reminders generated for policy ${policyId}`);
+      return true;
+    }
+    return false;
+  } catch (error) {
+    window.hideSpinner();
+    console.error('Failed to generate reminders for policy:', error);
+    return false;
+  }
+}
+
+// Hook into policy save - this will be called after policy is created/updated
+window.registerReminderGeneration = function() {
+  // Store original function if exists
+  if (window._originalSubmitPolicy) return;
+  
+  if (window.submitPolicy) {
+    window._originalSubmitPolicy = window.submitPolicy;
+    window.submitPolicy = async function() {
+      const result = await window._originalSubmitPolicy();
+      if (result && result.success) {
+        // Get the newly created/updated policy ID
+        const policyId = document.getElementById('pol-id')?.value || result.policyId;
+        if (policyId) {
+          // Wait for reminders to be generated
+          await generateRemindersForPolicy(policyId);
+          // Refresh reminders view if we're on reminders page
+          if (document.getElementById('reminders-tbody')) {
+            await loadReminders();
+          }
+        }
+      }
+      return result;
+    };
+    console.log('✅ Reminder generation registered with policy save');
+  }
+};
+
+// Also hook into policy update from policy detail
+window.registerPolicyUpdateHook = function() {
+  if (window._originalUpdatePolicy) return;
+  
+  if (window.updatePolicy) {
+    window._originalUpdatePolicy = window.updatePolicy;
+    window.updatePolicy = async function() {
+      const result = await window._originalUpdatePolicy();
+      if (result && result.success) {
+        const policyId = document.getElementById('pol-id')?.value;
+        if (policyId) {
+          await generateRemindersForPolicy(policyId);
+          if (document.getElementById('reminders-tbody')) {
+            await loadReminders();
+          }
+        }
+      }
+      return result;
+    };
+    console.log('✅ Reminder generation registered with policy update');
+  }
+};
+
+// Initialize hooks when policies module loads
+if (typeof window.loadPolicies === 'function') {
+  window.registerReminderGeneration();
+  window.registerPolicyUpdateHook();
 }
 
 // ─── GLOBAL EXPORTS ───────────────────────────────────────
 window.loadReminders           = loadReminders;
 window.filterReminders         = filterReminders;
-window.toggleDismissedView     = toggleDismissedView;
-window.dismissReminder         = dismissReminder;
-window.restoreReminder         = restoreReminder;
 window.permanentDeleteReminder = permanentDeleteReminder;
-window.dismissAllByPolicy      = dismissAllByPolicy;
 window.triggerGenerate         = triggerGenerate;
-window.openReminderModal       = openReminderModal;
-window.submitReminder          = submitReminder;
-window.showDismissedReminders  = toggleDismissedView;
+window.generateRemindersForPolicy = generateRemindersForPolicy;
 
-console.log('Reminders module loaded');
-console.log('window.permanentDeleteReminder type:', typeof window.permanentDeleteReminder);
+console.log('Reminders module loaded ✅ - Auto-generated reminders on policy add');

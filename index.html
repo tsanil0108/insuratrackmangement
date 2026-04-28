@@ -7,190 +7,551 @@
   <meta name="theme-color" content="#3b82f6">
   <title>InsuraTrack — Insurance Management System</title>
   
-  <!-- Preconnect for faster font loading -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   
-  <!-- Stylesheets -->
   <link rel="stylesheet" href="css/global.css">
   <link rel="stylesheet" href="css/dashboard.css">
   <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/users.css">
   
   <style>
-    /* Initial loading state - prevents flash of unstyled content */
-    #app {
-      min-height: 100vh;
-      background: var(--bg-base, #f8fafc);
-    }
+    /* Additional styles for modal and notifications */
+    #app { min-height: 100vh; background: var(--bg-base, #f8fafc); }
     
-    /* Theme toggle positioning fix */
-    .theme-toggle {
+    /* Modal Styles */
+    .modal {
       position: fixed;
-      bottom: 20px;
-      right: 20px;
-      z-index: 1000;
-      background: var(--bg-surface);
-      border: 1px solid var(--border);
-      border-radius: 40px;
-      padding: 6px;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 9999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .modal-content {
+      background: var(--bg-card, #fff);
+      border-radius: var(--radius-lg, 12px);
+      max-width: 90%;
+      width: 500px;
+      max-height: 90vh;
+      overflow-y: auto;
+      position: relative;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+    }
+    
+    .modal-header {
       display: flex;
-      gap: 4px;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border, #e5e7eb);
+    }
+    
+    .modal-header h3 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+    }
+    
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 24px;
       cursor: pointer;
-      box-shadow: var(--shadow-md);
-      backdrop-filter: blur(10px);
-      transition: all var(--transition-fast);
+      color: var(--text-muted, #6b7280);
+      padding: 0;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      transition: all 0.2s;
     }
     
-    .theme-toggle:hover {
-      transform: scale(1.05);
-      box-shadow: var(--shadow-lg);
+    .modal-close:hover {
+      background: var(--bg-hover, #f3f4f6);
+      color: var(--red, #ef4444);
     }
     
-    .theme-option {
-      padding: 8px 16px;
-      border-radius: 32px;
-      font-size: 0.875rem;
+    .modal-body {
+      padding: 20px;
+    }
+    
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      padding: 16px 20px;
+      border-top: 1px solid var(--border, #e5e7eb);
+    }
+    
+    /* Form Styles */
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+    
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    
+    .form-group label {
+      font-size: 13px;
       font-weight: 500;
-      color: var(--text-muted);
-      transition: all var(--transition-fast);
-      cursor: pointer;
+      color: var(--text-primary, #1f2937);
     }
     
-    .theme-option.active {
-      background: var(--accent);
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+      padding: 8px 12px;
+      border: 1px solid var(--border, #d1d5db);
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: inherit;
+      transition: border-color 0.2s;
+    }
+    
+    .form-group input:focus,
+    .form-group select:focus,
+    .form-group textarea:focus {
+      outline: none;
+      border-color: var(--accent, #3b82f6);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+    
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      font-weight: normal;
+    }
+    
+    .checkbox-label input {
+      width: auto;
+    }
+    
+    /* Button Styles */
+    .btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: none;
+      font-family: inherit;
+    }
+    
+    .btn-primary {
+      background: var(--accent, #3b82f6);
       color: white;
     }
     
-    @media (max-width: 768px) {
-      .theme-toggle {
-        bottom: 16px;
-        right: 16px;
-        padding: 4px;
+    .btn-primary:hover {
+      background: var(--accent-dark, #2563eb);
+    }
+    
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-primary, #374151);
+      border: 1px solid var(--border, #d1d5db);
+    }
+    
+    .btn-ghost:hover {
+      background: var(--bg-hover, #f3f4f6);
+    }
+    
+    .btn-danger {
+      background: var(--red, #ef4444);
+      color: white;
+    }
+    
+    .btn-danger:hover {
+      background: var(--red-dark, #dc2626);
+    }
+    
+    .btn-sm {
+      padding: 4px 12px;
+      font-size: 12px;
+    }
+    
+    .btn-success {
+      background: var(--green, #10b981);
+      color: white;
+    }
+    
+    .btn-success:hover {
+      background: var(--green-dark, #059669);
+    }
+    
+    /* Toast Notifications */
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      padding: 12px 20px;
+      border-radius: 8px;
+      color: white;
+      font-size: 14px;
+      z-index: 10000;
+      animation: slideIn 0.3s ease;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+    
+    .toast-success {
+      background: #10b981;
+    }
+    
+    .toast-error {
+      background: #ef4444;
+    }
+    
+    .toast-warning {
+      background: #f59e0b;
+    }
+    
+    @keyframes slideIn {
+      from {
+        transform: translateX(100%);
+        opacity: 0;
       }
-      
-      .theme-option {
-        padding: 6px 12px;
-        font-size: 0.75rem;
+      to {
+        transform: translateX(0);
+        opacity: 1;
       }
+    }
+    
+    /* Spinner */
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid var(--border, #e5e7eb);
+      border-top-color: var(--accent, #3b82f6);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto;
+    }
+    
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+    
+    /* Badge Styles */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    
+    .badge-active {
+      background: rgba(16, 185, 129, 0.12);
+      color: #10b981;
+    }
+    
+    .badge-expired {
+      background: rgba(239, 68, 68, 0.12);
+      color: #ef4444;
+    }
+    
+    .badge-expiring {
+      background: rgba(245, 158, 11, 0.12);
+      color: #f59e0b;
+    }
+    
+    /* Notification Dropdown */
+    .notif-dropdown {
+      position: absolute;
+      top: 60px;
+      right: 20px;
+      width: 380px;
+      max-width: calc(100vw - 40px);
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1);
+      border: 1px solid #e5e7eb;
+      z-index: 1000;
+      max-height: 500px;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .notif-dropdown.hidden {
+      display: none;
+    }
+    
+    .notif-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      border-bottom: 1px solid #e5e7eb;
+      background: #f9fafb;
+      border-radius: 12px 12px 0 0;
+      font-weight: 600;
+    }
+    
+    .notif-list {
+      overflow-y: auto;
+      max-height: 400px;
+    }
+    
+    .notif-item {
+      position: relative;
+      padding: 12px 40px 12px 12px;
+      border-bottom: 1px solid #e5e7eb;
+      cursor: pointer;
+      transition: background 0.2s;
+      display: flex;
+      gap: 12px;
+    }
+    
+    .notif-item:hover {
+      background: #f9fafb;
+    }
+    
+    .notif-item.unread {
+      background: #eff6ff;
+    }
+    
+    .notif-item.unread:hover {
+      background: #dbeafe;
+    }
+    
+    .notif-icon {
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+    
+    .notif-content {
+      flex: 1;
+    }
+    
+    .notif-title {
+      font-weight: 600;
+      font-size: 0.875rem;
+      margin-bottom: 4px;
+      color: #1f2937;
+    }
+    
+    .notif-message {
+      font-size: 0.75rem;
+      color: #6b7280;
+      margin-bottom: 4px;
+    }
+    
+    .notif-time {
+      font-size: 0.7rem;
+      color: #9ca3af;
+    }
+    
+    .notif-empty {
+      padding: 40px 20px;
+      text-align: center;
+      color: #9ca3af;
+      font-size: 0.875rem;
+    }
+    
+    .notif-delete {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.2s;
+      padding: 4px;
+      border-radius: 4px;
+      color: #9ca3af;
+    }
+    
+    .notif-item:hover .notif-delete {
+      opacity: 1;
+    }
+    
+    .notif-delete:hover {
+      background: #fee2e2;
+      color: #dc2626;
+    }
+    
+    .notif-dot {
+      position: absolute;
+      top: -2px;
+      right: -2px;
+      width: 10px;
+      height: 10px;
+      background: #ef4444;
+      border-radius: 50%;
+      border: 2px solid white;
+    }
+    
+    .nav-icon-btn {
+      position: relative;
+      cursor: pointer;
+      padding: 8px;
+      border-radius: 8px;
+      transition: background 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .nav-icon-btn:hover {
+      background: #f3f4f6;
+    }
+    
+    .btn-ghost {
+      background: none;
+      border: none;
+      cursor: pointer;
+    }
+    
+    .btn-sm {
+      padding: 4px 8px;
+      font-size: 0.75rem;
+    }
+    
+    .text-muted {
+      color: #6b7280;
+    }
+    
+    .flex {
+      display: flex;
+    }
+    
+    .gap-8 {
+      gap: 8px;
+    }
+    
+    .items-center {
+      align-items: center;
+    }
+    
+    .justify-between {
+      justify-content: space-between;
+    }
+    
+    .mono {
+      font-family: monospace;
+    }
+    
+    .empty-state {
+      text-align: center;
+      padding: 48px 24px;
     }
   </style>
 </head>
 <body>
   <div id="app">
-    <!-- Loading Spinner -->
     <div class="empty-state" style="margin-top:48px;background:transparent;border:none;">
       <div class="spinner"></div>
       <p style="margin-top:16px; color:var(--text-muted);">Loading InsuraTrack...</p>
     </div>
   </div>
 
-  <!-- Theme Toggle Button -->
-  <div class="theme-toggle" id="themeToggle" onclick="toggleTheme()">
-    <span class="theme-option" data-theme="light" id="themeLight">🌞 Light</span>
-    <span class="theme-option" data-theme="dark" id="themeDark">🌙 Dark</span>
-  </div>
-
   <script>
-    // Theme Management
-    function initTheme() {
-      const savedTheme = localStorage.getItem('theme');
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      const theme = savedTheme || (prefersDark ? 'dark' : 'light');
-      
-      if (theme === 'dark') {
-        document.documentElement.setAttribute('data-theme', 'dark');
-      } else {
-        document.documentElement.removeAttribute('data-theme');
-      }
-      
-      updateThemeToggleUI(theme);
-    }
+    // Global helper functions that need to be available immediately
+    document.documentElement.removeAttribute('data-theme');
     
-    function updateThemeToggleUI(theme) {
-      const lightOption = document.getElementById('themeLight');
-      const darkOption = document.getElementById('themeDark');
-      
-      if (lightOption && darkOption) {
-        if (theme === 'dark') {
-          lightOption.classList.remove('active');
-          darkOption.classList.add('active');
-        } else {
-          lightOption.classList.add('active');
-          darkOption.classList.remove('active');
-        }
-      }
-    }
-    
-    window.toggleTheme = function() {
-      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-      const newTheme = isDark ? 'light' : 'dark';
-      
-      if (newTheme === 'dark') {
-        document.documentElement.setAttribute('data-theme', 'dark');
-        localStorage.setItem('theme', 'dark');
-      } else {
-        document.documentElement.removeAttribute('data-theme');
-        localStorage.setItem('theme', 'light');
-      }
-      
-      updateThemeToggleUI(newTheme);
-      
-      // Optional: Dispatch event for other components to react
-      window.dispatchEvent(new CustomEvent('themeChanged', { detail: { theme: newTheme } }));
+    window.escapeHtml = function(str) {
+      if (!str) return '';
+      return String(str).replace(/[&<>]/g, function(m) {
+        if (m === '&') return '&amp;';
+        if (m === '<') return '&lt;';
+        if (m === '>') return '&gt;';
+        return m;
+      });
     };
     
-    // Initialize theme before anything else
-    initTheme();
+    // Simple showToast fallback
+    window.showToast = function(message, type) {
+      console.log(`[${type || 'info'}] ${message}`);
+      // Remove existing toast
+      const existing = document.querySelector('.toast');
+      if (existing) existing.remove();
+      
+      const toast = document.createElement('div');
+      toast.className = `toast toast-${type || 'success'}`;
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      
+      setTimeout(() => {
+        toast.style.animation = 'slideIn 0.3s ease reverse';
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    };
   </script>
 
-  <!-- JavaScript Modules - Load order matters -->
+  <!-- JavaScript Modules - Load in this EXACT order -->
   <script src="js/utils.js"></script>
   <script src="js/api.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/dashboard.js"></script>
   <script src="js/policies.js"></script>
-  <script src="js/payments.js"></script>
   <script src="js/companies.js"></script>
   <script src="js/providers.js"></script>
   <script src="js/types.js"></script>
+  <script src="js/insuranceitems.js"></script>
   <script src="js/reminders.js"></script>
+  <script src="js/hypothecations.js"></script>
   <script src="js/export.js"></script>
   <script src="js/recycle.js"></script>
+  <script src="js/users.js"></script>
   <script src="js/script.js"></script>
-  
+
   <script>
-    // Handle offline status
-    window.addEventListener('online', () => {
-      console.log('Back online');
-      if (window.showToast) {
-        window.showToast('Connection restored!', 'success');
-      }
+    // Global error handlers
+    window.addEventListener('online', function() { 
+      if (window.showToast) window.showToast('Connection restored!', 'success'); 
     });
     
-    window.addEventListener('offline', () => {
-      console.log('Offline');
-      if (window.showToast) {
-        window.showToast('You are offline. Please check your connection.', 'warning');
-      }
+    window.addEventListener('offline', function() { 
+      if (window.showToast) window.showToast('You are offline.', 'warning'); 
     });
     
-    // Handle unhandled errors
-    window.addEventListener('error', (event) => {
+    window.addEventListener('error', function(event) {
       console.error('Global error:', event.error);
-      if (window.showToast && !event.message?.includes('ResizeObserver')) {
-        window.showToast('An unexpected error occurred. Please refresh the page.', 'error');
+      // Don't show toast for expected initialization errors
+      if (window.showToast &&
+          !event.message?.includes('ResizeObserver') &&
+          !event.message?.includes('api is not defined') &&
+          !event.message?.includes('authUtils is not defined') &&
+          !event.message?.includes('Cannot read properties')) {
+        window.showToast('An unexpected error occurred. Please refresh.', 'error');
       }
     });
     
-    // Handle unhandled promise rejections
-    window.addEventListener('unhandledrejection', (event) => {
+    // Unhandled promise rejection handler
+    window.addEventListener('unhandledrejection', function(event) {
       console.error('Unhandled rejection:', event.reason);
-      if (window.showToast) {
-        window.showToast(event.reason?.message || 'An unexpected error occurred', 'error');
+      if (window.showToast && !event.reason?.message?.includes('Loading')) {
+        window.showToast('Something went wrong. Please try again.', 'error');
       }
     });
     
-    // Log successful app load
     console.log('🚀 InsuraTrack App Loaded Successfully');
   </script>
 </body>
