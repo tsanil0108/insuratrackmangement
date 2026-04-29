@@ -10,10 +10,16 @@
 // ✅ Graph: Status-wise Premium & Payment bar
 // ✅ Graph: Monthly Payment Trend
 // ✅ Graph: Premium Distribution by Type
+// ✅ Graph: Insurance Items — by type bar, active/inactive donut, items table
+// ✅ Address column in company table
 // ✅ Graph filter bar (date + status)
 // ✅ Export CSV + PDF (no Remaining column)
 // ✅ Pincode auto-fill
 // ✅ Soft-delete (recycle bin)
+// ✅ FIX: Insurance Items graph — uses /all endpoint (active + inactive)
+// ✅ FIX: Type matching by ID first, name as fallback
+// ✅ FIX: Items with NULL insuranceType are always shown (not filtered out)
+// ✅ FIX: /all endpoint failure properly caught + fallback to /v1/insurance-items
 
 'use strict';
 
@@ -77,9 +83,29 @@ function addCompanyStyles() {
       border-bottom: 2px solid var(--border,#e5e7eb);
       white-space: nowrap;
     }
-    .co-table td { padding: 10px; border-bottom: 1px solid var(--border,#f0f0f0); }
+    .co-table td { padding: 10px; border-bottom: 1px solid var(--border,#f0f0f0); vertical-align: middle; }
     .co-table tbody tr:hover { background: var(--bg-hover,#f9fafb); }
     .co-table tbody tr { cursor: pointer; }
+
+    .co-address-cell { max-width: 200px; }
+    .co-address-line1 {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-primary,#1a2035);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 190px;
+    }
+    .co-address-line2 {
+      font-size: 11px;
+      color: var(--text-muted,#6b7280);
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 190px;
+    }
 
     .co-badge-active   { display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:rgba(16,185,129,.12);color:#10b981; }
     .co-badge-expiring { display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:rgba(245,158,11,.12);color:#f59e0b; }
@@ -111,6 +137,22 @@ function addCompanyStyles() {
     .co-pay-amt   { font-size:10px;font-weight:600;margin-top:3px; }
 
     .co-mono { font-family:'Courier New',monospace;font-weight:600;color:var(--accent,#3b82f6); }
+
+    .co-section-divider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 24px 0 18px;
+    }
+    .co-section-divider-line  { flex:1;height:1px;background:var(--border,#e5e7eb); }
+    .co-section-divider-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--text-muted,#6b7280);
+      white-space: nowrap;
+    }
 
     @media (max-width:768px) {
       .co-filter-bar { flex-direction:column;align-items:stretch; }
@@ -213,6 +255,7 @@ async function loadCompanies() {
             <th>Short Name</th>
             <th>Email</th>
             <th>Phone</th>
+            <th>Address</th>
             <th>City</th>
             <th>State</th>
             <th>Status</th>
@@ -340,7 +383,7 @@ function updateExportPreview() {
   if (el) el.textContent = getExportFiltered().length;
 }
 
-// ─── CSV EXPORT (no Remaining column) ────────────────────
+// ─── CSV EXPORT ───────────────────────────────────────────
 
 window.exportFilteredCSV = function () {
   const data = getExportFiltered();
@@ -405,7 +448,7 @@ window.exportFilteredCSV = function () {
   window.closeExportModal();
 };
 
-// ─── PDF EXPORT (no Remaining column) ────────────────────
+// ─── PDF EXPORT ───────────────────────────────────────────
 
 window.exportFilteredPDF = function () {
   const data = getExportFiltered();
@@ -501,48 +544,56 @@ window.exportFilteredPDF = function () {
 // ─── RENDER COMPANY ROWS ──────────────────────────────────
 
 function renderCompanyRows(data, isAdmin) {
-  if (!data.length) return window.emptyState('No companies found', isAdmin ? 8 : 7);
-  return data.map(c => `
-    <tr>
-      <td onclick="window.showCompanyPolicies('${c.id}','${window.escapeHtml(c.name).replace(/'/g,"\\'")}')">
-        <div style="display:flex;align-items:center;gap:8px;">
-          <div style="width:32px;height:32px;border-radius:8px;background:var(--accent-soft);
-            color:var(--accent);display:flex;align-items:center;justify-content:center;
-            font-size:11px;font-weight:700;flex-shrink:0;">
-            ${window.escapeHtml(c.name).substring(0,2).toUpperCase()}
+  if (!data.length) return window.emptyState('No companies found', isAdmin ? 9 : 8);
+
+  return data.map(c => {
+    const addrLine1  = c.address ? window.escapeHtml(c.address) : '';
+    const addrParts2 = [c.city, c.district, c.state, c.pinCode].filter(Boolean);
+    const addrLine2  = addrParts2.length ? window.escapeHtml(addrParts2.join(', ')) : '';
+    const hasAddress = addrLine1 || addrLine2;
+
+    const onClick = `onclick="window.showCompanyPolicies('${c.id}','${window.escapeHtml(c.name).replace(/'/g,"\\'")}')"`; 
+
+    return `
+      <tr>
+        <td ${onClick}>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div style="width:32px;height:32px;border-radius:8px;background:var(--accent-soft);
+              color:var(--accent);display:flex;align-items:center;justify-content:center;
+              font-size:11px;font-weight:700;flex-shrink:0;">
+              ${window.escapeHtml(c.name).substring(0,2).toUpperCase()}
+            </div>
+            <strong style="color:var(--accent);">${window.escapeHtml(c.name)}</strong>
           </div>
-          <strong style="color:var(--accent);">${window.escapeHtml(c.name)}</strong>
-        </div>
-      </td>
-      <td onclick="window.showCompanyPolicies('${c.id}','${window.escapeHtml(c.name).replace(/'/g,"\\'")}')">
-        ${window.escapeHtml(c.shortName) || '<span class="text-muted">—</span>'}
-      </td>
-      <td onclick="window.showCompanyPolicies('${c.id}','${window.escapeHtml(c.name).replace(/'/g,"\\'")}')">
-        ${window.escapeHtml(c.contactEmail) || '<span class="text-muted">—</span>'}
-      </td>
-      <td onclick="window.showCompanyPolicies('${c.id}','${window.escapeHtml(c.name).replace(/'/g,"\\'")}')">
-        ${window.escapeHtml(c.contactPhone) || '<span class="text-muted">—</span>'}
-      </td>
-      <td onclick="window.showCompanyPolicies('${c.id}','${window.escapeHtml(c.name).replace(/'/g,"\\'")}')">
-        ${window.escapeHtml(c.city) || '<span class="text-muted">—</span>'}
-      </td>
-      <td onclick="window.showCompanyPolicies('${c.id}','${window.escapeHtml(c.name).replace(/'/g,"\\'")}')">
-        ${window.escapeHtml(c.state) || '<span class="text-muted">—</span>'}
-      </td>
-      <td onclick="window.showCompanyPolicies('${c.id}','${window.escapeHtml(c.name).replace(/'/g,"\\'")}')">
-        ${c.active ? '<span class="co-badge-active">● Active</span>' : '<span class="co-badge-expired">● Inactive</span>'}
-      </td>
-      ${isAdmin ? `
-        <td>
-          <div class="flex gap-8">
-            <button class="btn btn-ghost btn-sm"
-              onclick="event.stopPropagation();window.openCompanyModal('${c.id}')">Edit</button>
-            <button class="btn btn-danger btn-sm"
-              onclick="event.stopPropagation();window.deleteCompany('${c.id}','${window.escapeHtml(c.name).replace(/'/g,"\\'")}')">Delete</button>
-          </div>
-        </td>` : ''}
-    </tr>
-  `).join('');
+        </td>
+        <td ${onClick}>${window.escapeHtml(c.shortName) || '<span class="text-muted">—</span>'}</td>
+        <td ${onClick}>${window.escapeHtml(c.contactEmail) || '<span class="text-muted">—</span>'}</td>
+        <td ${onClick}>${window.escapeHtml(c.contactPhone) || '<span class="text-muted">—</span>'}</td>
+        <td ${onClick}>
+          ${hasAddress
+            ? `<div class="co-address-cell">
+                ${addrLine1 ? `<div class="co-address-line1" title="${addrLine1}">${addrLine1.length > 30 ? addrLine1.substring(0,28)+'…' : addrLine1}</div>` : ''}
+                ${addrLine2 ? `<div class="co-address-line2" title="${addrLine2}">${addrLine2.length > 32 ? addrLine2.substring(0,30)+'…' : addrLine2}</div>` : ''}
+              </div>`
+            : '<span class="text-muted">—</span>'}
+        </td>
+        <td ${onClick}>${window.escapeHtml(c.city) || '<span class="text-muted">—</span>'}</td>
+        <td ${onClick}>${window.escapeHtml(c.state) || '<span class="text-muted">—</span>'}</td>
+        <td ${onClick}>
+          ${c.active ? '<span class="co-badge-active">● Active</span>' : '<span class="co-badge-expired">● Inactive</span>'}
+        </td>
+        ${isAdmin ? `
+          <td>
+            <div class="flex gap-8">
+              <button class="btn btn-ghost btn-sm"
+                onclick="event.stopPropagation();window.openCompanyModal('${c.id}')">Edit</button>
+              <button class="btn btn-danger btn-sm"
+                onclick="event.stopPropagation();window.deleteCompany('${c.id}','${window.escapeHtml(c.name).replace(/'/g,"\\'")}')">Delete</button>
+            </div>
+          </td>` : ''}
+      </tr>
+    `;
+  }).join('');
 }
 
 // ─── COMPANY MODAL ────────────────────────────────────────
@@ -770,7 +821,7 @@ window.showCompanyPolicies = async function (companyId, companyName) {
   }
 };
 
-// ─── POLICY TABLE — sorted ascending, NO Remaining column ─
+// ─── POLICY TABLE ─────────────────────────────────────────
 
 function renderCompanyPolicyTable(policies) {
   const content = document.getElementById('company-policy-content');
@@ -798,7 +849,6 @@ function renderCompanyPolicyTable(policies) {
   const pct = n => sorted.length ? Math.round((n / sorted.length) * 100) : 0;
 
   content.innerHTML = `
-    <!-- Status Breakdown Cards -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:20px;">
       <div class="co-card" style="border-top:3px solid #10b981;">
         <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">✅ Active</div>
@@ -817,7 +867,6 @@ function renderCompanyPolicyTable(policies) {
       </div>
     </div>
 
-    <!-- KPI Cards — NO Remaining -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:20px;">
       ${[
         ['Total Policies', sorted.length,                     ''],
@@ -831,7 +880,6 @@ function renderCompanyPolicyTable(policies) {
         </div>`).join('')}
     </div>
 
-    <!-- Filter Bar -->
     <div class="co-filter-bar">
       <span style="font-size:12px;font-weight:700;color:var(--text-muted);">🔍 Filter by End Date:</span>
       <div style="display:flex;align-items:center;gap:6px;">
@@ -852,18 +900,12 @@ function renderCompanyPolicyTable(policies) {
       <span id="cp-filter-count" style="font-size:12px;color:var(--text-muted);"></span>
     </div>
 
-    <!-- Policy Table — 7 columns, NO Remaining -->
     <div class="co-table-wrap">
       <table class="co-table">
         <thead>
           <tr>
-            <th>Policy #</th>
-            <th>Type</th>
-            <th>Provider</th>
-            <th>Status</th>
-            <th>Premium</th>
-            <th>End Date</th>
-            <th>Paid</th>
+            <th>Policy #</th><th>Type</th><th>Provider</th><th>Status</th>
+            <th>Premium</th><th>End Date</th><th>Paid</th>
           </tr>
         </thead>
         <tbody id="cp-policy-tbody">
@@ -962,7 +1004,6 @@ window.renderCompanyGraphs = async function (companyId) {
         </div>
       </div>
 
-      <!-- Graph Filter -->
       <div class="co-filter-bar" style="margin-bottom:20px;">
         <span style="font-size:12px;font-weight:700;color:var(--text-muted);">📅 Filter Graphs by End Date:</span>
         <div style="display:flex;align-items:center;gap:6px;">
@@ -1040,7 +1081,7 @@ async function _renderGraphCharts(policies, analytics) {
     return;
   }
 
-  // ── Aggregates ───────────────────────────────────────────
+  // ── Policy Aggregates ─────────────────────────────────────
   const statusCount = {};
   const typeCount   = {};
   const typeStats   = {};
@@ -1103,7 +1144,6 @@ async function _renderGraphCharts(policies, analytics) {
   const typeChartH  = Math.max(160, Object.keys(typeCount).length * 52);
   const palette     = ['#3b82f6','#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6','#f97316','#06b6d4'];
 
-  // Type table rows (sorted by premium desc)
   const typeSorted    = Object.entries(typeStats).sort((a,b) => b[1].premium - a[1].premium);
   const typeTableRows = typeSorted.map(([name, d]) => {
     const rate      = d.premium > 0 ? Math.round((d.paid/d.premium)*100) : 0;
@@ -1124,9 +1164,103 @@ async function _renderGraphCharts(policies, analytics) {
     </tr>`;
   }).join('');
 
-  // ── HTML ─────────────────────────────────────────────────
+  // ── Insurance Items Aggregates ─────────────────────────────
+  // ✅ FIX: Try /all endpoint first, fallback to default, then empty array
+  let itemsData = [];
+  try {
+    const allResult = await api.get('v1/insurance-items/all').catch(err => {
+      console.warn('⚠️ /all endpoint failed, trying default:', err?.message || err);
+      return null;
+    });
+    if (Array.isArray(allResult)) {
+      itemsData = allResult;
+      console.log(`✅ Loaded ${itemsData.length} items from /all endpoint`);
+    } else {
+      // Fallback to default endpoint (active-only, but better than nothing)
+      const defaultResult = await api.get('v1/insurance-items').catch(err => {
+        console.warn('⚠️ Default items endpoint also failed:', err?.message || err);
+        return null;
+      });
+      itemsData = Array.isArray(defaultResult) ? defaultResult : [];
+      console.log(`✅ Loaded ${itemsData.length} items from default endpoint (fallback)`);
+    }
+  } catch(e) {
+    console.error('❌ Failed to load insurance items:', e);
+    itemsData = [];
+  }
+
+  // ✅ FIX: Collect type IDs and names used by this company's policies
+  const companyTypeIds   = new Set(policies.map(p => p.insuranceType?.id).filter(Boolean));
+  const companyTypeNames = new Set(
+    policies.map(p => p.insuranceTypeName || p.insuranceType?.name).filter(Boolean)
+  );
+
+  const hasTypeFilter = companyTypeIds.size > 0 || companyTypeNames.size > 0;
+
+  // ✅ KEY FIX: Items with NULL insuranceType are ALWAYS included (not filtered out).
+  //            Only filter by type when the item actually has a type assigned.
+  const relevantItems = itemsData.filter(item => {
+    // Item has no insurance type → always show it
+    if (!item.insuranceType || !item.insuranceType.id) return true;
+    // No type filter possible (company has no typed policies) → show all
+    if (!hasTypeFilter) return true;
+    // Match by ID first (most reliable), then by name as fallback
+    const itemTypeId   = item.insuranceType.id;
+    const itemTypeName = item.insuranceType.name;
+    return (itemTypeId   && companyTypeIds.has(itemTypeId))
+        || (itemTypeName && companyTypeNames.has(itemTypeName));
+  });
+
+  console.log(`📦 Insurance items — total fetched: ${itemsData.length}, relevant: ${relevantItems.length}`);
+
+  // ✅ FIX: Robustly detect active status (handles boolean true, string "true", 1)
+  const isActive = i => i.active === true || i.active === 'true' || i.active === 1;
+
+  const itemActiveCount   = relevantItems.filter(isActive).length;
+  const itemInactiveCount = relevantItems.filter(i => !isActive(i)).length;
+
+  // Group items by insurance type (use "No Type" for unassigned items)
+  const itemsByType = {};
+  relevantItems.forEach(item => {
+    const t = item.insuranceType?.name || 'No Type Assigned';
+    if (!itemsByType[t]) itemsByType[t] = { active: 0, inactive: 0 };
+    if (isActive(item)) itemsByType[t].active++;
+    else                itemsByType[t].inactive++;
+  });
+
+  const itemTypeLabels  = Object.keys(itemsByType).sort((a,b) =>
+    (itemsByType[b].active + itemsByType[b].inactive) - (itemsByType[a].active + itemsByType[a].inactive)
+  );
+  const itemTypeActives = itemTypeLabels.map(t => itemsByType[t].active);
+  const itemTypeInacts  = itemTypeLabels.map(t => itemsByType[t].inactive);
+  const itemChartH      = Math.max(140, itemTypeLabels.length * 46);
+
+  // Items detail table rows (active first, inactive after)
+  const sortedItems   = [...relevantItems].sort((a, b) => (isActive(b) ? 1 : 0) - (isActive(a) ? 1 : 0));
+  const itemTableRows = sortedItems.map(item => `
+    <tr style="border-bottom:1px solid var(--border,#f0f0f0);">
+      <td style="padding:8px 10px;font-weight:600;font-size:12px;">${window.escapeHtml(item.name || '—')}</td>
+      <td style="padding:8px 6px;font-size:12px;color:var(--text-muted);">
+        ${item.insuranceType?.name
+          ? window.escapeHtml(item.insuranceType.name)
+          : '<span style="color:var(--text-muted);font-style:italic;">No Type</span>'}
+      </td>
+      <td style="padding:8px 6px;font-size:12px;">
+        ${item.description
+          ? window.escapeHtml(item.description.substring(0,40)) + (item.description.length > 40 ? '…' : '')
+          : '<span style="color:var(--text-muted)">—</span>'}
+      </td>
+      <td style="padding:8px 6px;">
+        ${isActive(item)
+          ? '<span class="co-badge-active">● Active</span>'
+          : '<span class="co-badge-expired">● Inactive</span>'}
+      </td>
+    </tr>`).join('');
+
+  // ── HTML Output ───────────────────────────────────────────
   area.innerHTML = `
-    <!-- KPI Cards — NO Remaining -->
+
+    <!-- KPI Cards -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:20px;">
       ${[
         ['📋 Policies',  policies.length,     '#3b82f6'],
@@ -1141,15 +1275,20 @@ async function _renderGraphCharts(policies, analytics) {
         </div>`).join('')}
     </div>
 
-    <!-- Row 1: Status Donut + Payment Status -->
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:16px;">
+    <!-- ═══════════ SECTION: POLICY ANALYTICS ═══════════ -->
+    <div class="co-section-divider">
+      <div class="co-section-divider-line"></div>
+      <span class="co-section-divider-label">📋 Policy Analytics</span>
+      <div class="co-section-divider-line"></div>
+    </div>
 
+    <!-- Status Donut + Payment Breakdown -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:16px;">
       <div class="co-chart-card">
         <div class="co-chart-title">🟢 Policy Status Breakdown</div>
         <div class="co-chart-subtitle">Distribution by current policy status</div>
         <div style="position:relative;height:230px;"><canvas id="gc-status"></canvas></div>
       </div>
-
       <div class="co-chart-card">
         <div class="co-chart-title">💰 Payment Status Breakdown</div>
         <div class="co-chart-subtitle">Fully paid · partial · unpaid policies</div>
@@ -1180,7 +1319,7 @@ async function _renderGraphCharts(policies, analytics) {
       </div>
     </div>
 
-    <!-- Row 2: Insurance Type bar + table -->
+    <!-- Insurance Type Bar + Table -->
     <div class="co-chart-card">
       <div class="co-chart-title">🏷️ Policies by Insurance Type</div>
       <div class="co-chart-subtitle">Count, premium & collection rate per type</div>
@@ -1188,25 +1327,23 @@ async function _renderGraphCharts(policies, analytics) {
         <div style="position:relative;height:${typeChartH}px;"><canvas id="gc-type"></canvas></div>
         <div style="overflow-x:auto;">
           <table style="width:100%;border-collapse:collapse;font-size:12px;">
-            <thead>
-              <tr style="background:var(--bg-elevated,#f8fafc);">
-                <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--border);">Type</th>
-                <th style="padding:8px 6px;text-align:center;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--border);">#</th>
-                <th style="padding:8px 6px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--border);">Premium</th>
-                <th style="padding:8px 6px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;color:#10b981;border-bottom:2px solid var(--border);">Paid</th>
-                <th style="padding:8px 6px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--border);">Rate</th>
-              </tr>
-            </thead>
+            <thead><tr style="background:var(--bg-elevated,#f8fafc);">
+              <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--border);">Type</th>
+              <th style="padding:8px 6px;text-align:center;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--border);">#</th>
+              <th style="padding:8px 6px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--border);">Premium</th>
+              <th style="padding:8px 6px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;color:#10b981;border-bottom:2px solid var(--border);">Paid</th>
+              <th style="padding:8px 6px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--border);">Rate</th>
+            </tr></thead>
             <tbody>${typeTableRows || '<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--text-muted);">No data</td></tr>'}</tbody>
           </table>
         </div>
       </div>
     </div>
 
-    <!-- Row 3: Year-wise mini cards + grouped bar -->
+    <!-- Year-wise Analytics -->
     <div class="co-chart-card">
       <div class="co-chart-title">📅 Year-wise Policy Analytics</div>
-      <div class="co-chart-subtitle">Premium vs Paid grouped by policy end-date year · ${sortedYears.length ? sortedYears[0]+' – '+sortedYears[sortedYears.length-1] : 'No data'}</div>
+      <div class="co-chart-subtitle">Premium vs Paid by policy end-date year · ${sortedYears.length ? sortedYears[0]+' – '+sortedYears[sortedYears.length-1] : 'No data'}</div>
       ${sortedYears.length ? `
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
         ${sortedYears.map(yr => {
@@ -1228,7 +1365,7 @@ async function _renderGraphCharts(policies, analytics) {
       <div style="position:relative;height:260px;"><canvas id="gc-year"></canvas></div>
     </div>
 
-    <!-- Row 4: Status-wise Premium & Payment table + bar -->
+    <!-- Status-wise Premium & Payment -->
     <div class="co-chart-card">
       <div class="co-chart-title">💡 Status-wise Premium & Payment</div>
       <div class="co-chart-subtitle">Total premium vs amount collected per policy status</div>
@@ -1260,23 +1397,110 @@ async function _renderGraphCharts(policies, analytics) {
       <div style="position:relative;height:220px;"><canvas id="gc-status-premium"></canvas></div>
     </div>
 
-    <!-- Row 5: Monthly trend -->
+    <!-- Monthly Trend -->
     <div class="co-chart-card">
       <div class="co-chart-title">📆 Monthly Payment Trend (Last 12 Months)</div>
       <div class="co-chart-subtitle">Amount collected vs premium due per month</div>
       <div style="position:relative;height:240px;"><canvas id="gc-monthly"></canvas></div>
     </div>
 
-    <!-- Row 6: Premium distribution by type -->
+    <!-- Premium Distribution by Type -->
     ${Object.keys(typeCount).length > 0 ? `
     <div class="co-chart-card">
       <div class="co-chart-title">💼 Premium Distribution by Insurance Type</div>
-      <div class="co-chart-subtitle">Total premium amount collected per type</div>
+      <div class="co-chart-subtitle">Total premium amount per type</div>
       <div style="position:relative;height:${typeChartH}px;"><canvas id="gc-prem-type"></canvas></div>
     </div>` : ''}
+
+    <!-- ═══════════ SECTION: INSURANCE ITEMS ═══════════ -->
+    <div class="co-section-divider">
+      <div class="co-section-divider-line"></div>
+      <span class="co-section-divider-label">📦 Insurance Items Analytics</span>
+      <div class="co-section-divider-line"></div>
+    </div>
+
+    ${relevantItems.length === 0 ? `
+    <div class="co-chart-card" style="text-align:center;padding:32px;color:var(--text-muted);">
+      <div style="font-size:32px;margin-bottom:8px;">📭</div>
+      <div style="font-size:13px;">No insurance items found. Add items in the Insurance Items section.</div>
+    </div>` : `
+
+    <!-- Items KPI Cards -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:16px;">
+      <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;border-top:3px solid #8b5cf6;">
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">📦 Total Items</div>
+        <div style="font-size:22px;font-weight:800;color:#8b5cf6;">${relevantItems.length}</div>
+      </div>
+      <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;border-top:3px solid #10b981;">
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">✅ Active Items</div>
+        <div style="font-size:22px;font-weight:800;color:#10b981;">${itemActiveCount}</div>
+      </div>
+      <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;border-top:3px solid #ef4444;">
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">❌ Inactive Items</div>
+        <div style="font-size:22px;font-weight:800;color:#ef4444;">${itemInactiveCount}</div>
+      </div>
+      <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;border-top:3px solid #f59e0b;">
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">🏷️ Types Covered</div>
+        <div style="font-size:22px;font-weight:800;color:#f59e0b;">${itemTypeLabels.length}</div>
+      </div>
+    </div>
+
+    <!-- Items Charts: Stacked Bar + Donut -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:16px;">
+
+      <div class="co-chart-card">
+        <div class="co-chart-title">📊 Items by Insurance Type</div>
+        <div class="co-chart-subtitle">Active vs inactive items per type</div>
+        <div style="position:relative;height:${itemChartH}px;"><canvas id="gc-items-type"></canvas></div>
+      </div>
+
+      <div class="co-chart-card">
+        <div class="co-chart-title">🔵 Active vs Inactive Items</div>
+        <div class="co-chart-subtitle">Overall item status distribution</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+          <div class="co-pay-card" style="background:#f0fdf4;border:1px solid #bbf7d0;">
+            <div class="co-pay-label" style="color:#16a34a;">✅ Active</div>
+            <div class="co-pay-count" style="color:#16a34a;">${itemActiveCount}</div>
+            <div class="co-pay-amt"   style="color:#16a34a;">${relevantItems.length > 0 ? Math.round(itemActiveCount/relevantItems.length*100) : 0}%</div>
+          </div>
+          <div class="co-pay-card" style="background:#fef2f2;border:1px solid #fecaca;">
+            <div class="co-pay-label" style="color:#dc2626;">❌ Inactive</div>
+            <div class="co-pay-count" style="color:#dc2626;">${itemInactiveCount}</div>
+            <div class="co-pay-amt"   style="color:#dc2626;">${relevantItems.length > 0 ? Math.round(itemInactiveCount/relevantItems.length*100) : 0}%</div>
+          </div>
+        </div>
+        <div style="position:relative;height:180px;">
+          <canvas id="gc-items-donut"></canvas>
+          <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;">
+            <div style="font-size:22px;font-weight:800;line-height:1;">${relevantItems.length}</div>
+            <div style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-top:2px;">Items</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Items Detail Table -->
+    <div class="co-chart-card">
+      <div class="co-chart-title">📋 Insurance Items Detail</div>
+      <div class="co-chart-subtitle">All items linked to this company's policy types (active first)</div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead><tr style="background:var(--bg-elevated,#f8fafc);">
+            <th style="padding:9px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--border);">Item Name</th>
+            <th style="padding:9px 6px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--border);">Insurance Type</th>
+            <th style="padding:9px 6px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--border);">Description</th>
+            <th style="padding:9px 6px;text-align:center;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--border);">Status</th>
+          </tr></thead>
+          <tbody>
+            ${itemTableRows || '<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--text-muted);">No items found</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    `}
   `;
 
-  // ── CHARTS ───────────────────────────────────────────────
+  // ── POLICY CHARTS ─────────────────────────────────────────
   const baseOpts = { responsive:true, maintainAspectRatio:false };
 
   // 1. Status donut
@@ -1291,7 +1515,7 @@ async function _renderGraphCharts(policies, analytics) {
     });
   }
 
-  // 2. Payment donut with center label
+  // 2. Payment donut
   const payCtx = document.getElementById('gc-payment');
   if (payCtx) {
     window._companyCharts.payment = new Chart(payCtx, {
@@ -1359,7 +1583,7 @@ async function _renderGraphCharts(policies, analytics) {
     });
   }
 
-  // 7. Premium distribution by type horizontal bar
+  // 7. Premium distribution by type
   const premTypeCtx = document.getElementById('gc-prem-type');
   if (premTypeCtx && Object.keys(typeCount).length) {
     const typePrems = {};
@@ -1369,6 +1593,55 @@ async function _renderGraphCharts(policies, analytics) {
       type: 'bar',
       data: { labels:tLabels, datasets:[{ label:'Total Premium (₹)', data:tLabels.map(k=>typePrems[k]), backgroundColor:tLabels.map((_,i)=>palette[i%palette.length]), borderRadius:6 }] },
       options: { indexAxis:'y', ...baseOpts, plugins:{ legend:{display:false}, tooltip:{callbacks:{label:ctx=>` ${fmtINR(ctx.raw)}`}} }, scales:{ x:{ beginAtZero:true, ticks:{callback:v=>'₹'+(v>=100000?(v/100000).toFixed(1)+'L':v>=1000?(v/1000).toFixed(0)+'K':v)} }, y:{ ticks:{font:{size:11}, callback:function(v){ const l=this.getLabelForValue(v); return l.length>22?l.substring(0,20)+'…':l; }} } } }
+    });
+  }
+
+  // ── INSURANCE ITEMS CHARTS ────────────────────────────────
+
+  // 8. Items by type — grouped horizontal bar (active vs inactive)
+  const itemsTypeCtx = document.getElementById('gc-items-type');
+  if (itemsTypeCtx && itemTypeLabels.length) {
+    window._companyCharts.itemsType = new Chart(itemsTypeCtx, {
+      type: 'bar',
+      data: {
+        labels: itemTypeLabels,
+        datasets: [
+          { label:'Active',   data:itemTypeActives, backgroundColor:'rgba(16,185,129,.85)', borderRadius:4 },
+          { label:'Inactive', data:itemTypeInacts,  backgroundColor:'rgba(239,68,68,.7)',   borderRadius:4 }
+        ]
+      },
+      options: {
+        indexAxis: 'y',
+        ...baseOpts,
+        plugins: {
+          legend: { position:'top', labels:{ padding:14, font:{size:12} } },
+          tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.raw} item${ctx.raw===1?'':'s'}` } }
+        },
+        scales: {
+          x: { beginAtZero:true, stacked:false, ticks:{ stepSize:1, font:{size:11} }, grid:{color:'rgba(0,0,0,.05)'} },
+          y: { ticks:{ font:{size:11}, callback:function(v){ const l=this.getLabelForValue(v); return l.length>22?l.substring(0,20)+'…':l; } } }
+        }
+      }
+    });
+  }
+
+  // 9. Items Active / Inactive donut
+  const itemsDonutCtx = document.getElementById('gc-items-donut');
+  if (itemsDonutCtx && relevantItems.length) {
+    window._companyCharts.itemsDonut = new Chart(itemsDonutCtx, {
+      type: 'doughnut',
+      data: {
+        labels: ['Active','Inactive'],
+        datasets: [{ data:[itemActiveCount, itemInactiveCount], backgroundColor:['#10b981','#ef4444'], borderWidth:2, borderColor:'transparent' }]
+      },
+      options: {
+        ...baseOpts,
+        cutout: '68%',
+        plugins: {
+          legend: { position:'bottom', labels:{ padding:16, font:{size:12} } },
+          tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.raw} item${ctx.raw===1?'':'s'}` } }
+        }
+      }
     });
   }
 }
@@ -1407,4 +1680,4 @@ window.applyGraphFilter           = window.applyGraphFilter;
 window.clearGraphFilter           = window.clearGraphFilter;
 window._destroyAllCharts          = _destroyAllCharts;
 
-console.log('✅ Companies module — No Remaining column · 7 graph charts · Fixed CSS · Phone validation');
+console.log('✅ Companies module — Items graph fixed: null-type items included · /all fallback · robust isActive check');

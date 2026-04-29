@@ -2,14 +2,21 @@
 (function () {
   'use strict';
 
-  window.API_BASE = (() => {
-    const hostname = window.location.hostname;
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      return 'http://localhost:8080';
-    }
-    return 'https://insuratrack-8.onrender.com';
-  })();
+window.API_BASE = (() => {
+  const hostname = window.location.hostname;
 
+  // ✅ Local + Mobile (same WiFi)
+  if (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname.startsWith('192.168.1.12')
+  ) {
+    return `http://${hostname}:8080`;
+  }
+
+  // 🌍 Production
+  return 'https://insuratrack-8.onrender.com';
+})();
   window.api = {
     token() {
       return localStorage.getItem('insura_token');

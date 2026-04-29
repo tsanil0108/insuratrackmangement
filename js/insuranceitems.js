@@ -1,15 +1,18 @@
-// insurance-items.js - Complete Insurance Item Management (FIXED)
+// insurance-items.js - Complete Insurance Item Management
+// ✅ FIX: insuranceType is now optional (nullable) — items can exist without a type
+// ✅ FIX: saveItem() no longer blocks if no type is selected
+// ✅ FIX: renderItemsTable shows "No Type" gracefully
+
+'use strict';
 
 let allItems = [];
 let insuranceTypes = [];
 let deleteId = null;
 let currentFilter = { typeId: '', status: 'all' };
 
-// ✅ FIXED: Initialize page - pehle HTML render karo, phir data load karo
 async function initInsuranceItems() {
   const isAdmin = authUtils?.isAdmin() || false;
 
-  // ✅ STEP 1: Pehle dash-content mein poora HTML inject karo
   document.getElementById('dash-content').innerHTML = `
     <div class="section-header">
       <div>
@@ -58,9 +61,9 @@ async function initInsuranceItems() {
           <input type="hidden" id="itemId">
           <div class="form-grid">
             <div class="form-group">
-              <label>Insurance Type *</label>
+              <label>Insurance Type <span style="color:var(--text-muted);font-weight:400;font-size:11px;">(optional)</span></label>
               <select id="typeId">
-                <option value="">Select Insurance Type</option>
+                <option value="">— No Type —</option>
               </select>
             </div>
             <div class="form-group">
@@ -103,35 +106,26 @@ async function initInsuranceItems() {
     </div>
   `;
 
-  // ✅ STEP 2: Data load karo HTML inject hone ke baad
   await loadInsuranceTypes();
   await loadItems();
   setupEventListeners();
 }
 
-// Load insurance types for dropdown
 async function loadInsuranceTypes() {
   try {
     const data = await api.get('v1/insurance-types');
-    if (data && data.length) {
-      insuranceTypes = data;
-      populateTypeFilter();
-      populateTypeSelect();
-    } else {
-      console.warn('No insurance types found');
-      insuranceTypes = [];
-    }
+    insuranceTypes = Array.isArray(data) ? data : [];
+    populateTypeFilter();
+    populateTypeSelect();
   } catch (error) {
     console.error('Failed to load insurance types:', error);
-    window.showToast('Failed to load insurance types', 'error');
+    insuranceTypes = [];
   }
 }
 
-// Populate type filter dropdown (top bar)
 function populateTypeFilter() {
   const typeFilter = document.getElementById('typeFilter');
   if (!typeFilter) return;
-
   typeFilter.innerHTML =
     '<option value="">All Insurance Types</option>' +
     insuranceTypes.map(type =>
@@ -139,27 +133,38 @@ function populateTypeFilter() {
     ).join('');
 }
 
-// Populate type select in Add/Edit modal
 function populateTypeSelect() {
   const typeSelect = document.getElementById('typeId');
   if (!typeSelect) return;
-
+  // ✅ FIX: First option is "No Type" (empty value) — type is optional
   typeSelect.innerHTML =
-    '<option value="">Select Insurance Type</option>' +
+    '<option value="">— No Type —</option>' +
     insuranceTypes.map(type =>
       `<option value="${type.id}">${escapeHtml(type.name)}</option>`
     ).join('');
 }
 
-// Load all insurance items
+// ✅ FIX: Load items using /all endpoint to get active + inactive
+//         Falls back to default endpoint if /all isn't deployed yet
 async function loadItems() {
   try {
-    const data = await api.get('v1/insurance-items');
-    if (data) {
-      allItems = data;
-    } else {
-      allItems = [];
+    let data = null;
+
+    // Try /all first (returns active + inactive)
+    try {
+      data = await api.get('v1/insurance-items/all');
+      console.log(`✅ Loaded ${(data||[]).length} items from /all endpoint`);
+    } catch (e) {
+      console.warn('⚠️ /all endpoint not available, falling back to default:', e?.message);
     }
+
+    // Fallback to default endpoint (active only)
+    if (!Array.isArray(data)) {
+      data = await api.get('v1/insurance-items');
+      console.log(`✅ Loaded ${(data||[]).length} items from default endpoint (fallback)`);
+    }
+
+    allItems = Array.isArray(data) ? data : [];
     applyFilters();
   } catch (error) {
     console.error('Failed to load insurance items:', error);
@@ -169,7 +174,6 @@ async function loadItems() {
   }
 }
 
-// Apply filters to items
 function applyFilters() {
   let filtered = [...allItems];
 
@@ -180,19 +184,17 @@ function applyFilters() {
   }
 
   if (currentFilter.status === 'active') {
-    filtered = filtered.filter(item => item.active === true);
+    filtered = filtered.filter(item => item.active === true || item.active === 'true');
   } else if (currentFilter.status === 'inactive') {
-    filtered = filtered.filter(item => item.active === false);
+    filtered = filtered.filter(item => item.active !== true && item.active !== 'true');
   }
 
-  // Update count
   const countEl = document.getElementById('items-count');
-  if (countEl) countEl.textContent = `${filtered.length} items`;
+  if (countEl) countEl.textContent = `${filtered.length} item${filtered.length !== 1 ? 's' : ''}`;
 
   renderItemsTable(filtered);
 }
 
-// Render items table
 function renderItemsTable(items) {
   const isAdmin = authUtils?.isAdmin() || false;
   const tbody = document.getElementById('itemsTableBody');
@@ -204,7 +206,8 @@ function renderItemsTable(items) {
         <td colspan="${isAdmin ? 6 : 5}">
           <div class="empty-state" style="padding:48px 0; text-align:center;">
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none"
-              stroke="var(--text-muted,#aaa)" stroke-width="1.5" style="margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;">
+              stroke="var(--text-muted,#aaa)" stroke-width="1.5"
+              style="margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;">
               <path d="M20 7h-4.18A3 3 0 0013 5.18V4a2 2 0 00-2-2H9a2 2 0 00-2 2v1.18A3 3 0 006.18 7H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/>
               <circle cx="12" cy="15" r="3"/>
               <line x1="9" y1="7" x2="15" y2="7"/>
@@ -218,31 +221,42 @@ function renderItemsTable(items) {
     return;
   }
 
-  tbody.innerHTML = items.map(item => `
-    <tr>
-      <td><strong>${escapeHtml(item.name)}</strong></td>
-      <td>
-        <span class="badge" style="background:var(--color-info-light,#e8f0fe);color:var(--color-info,#1a73e8);border-radius:4px;padding:2px 8px;font-size:12px;">
-          ${item.insuranceType ? escapeHtml(item.insuranceType.name) : 'N/A'}
-        </span>
-      </td>
-      <td>${item.description ? escapeHtml(item.description.substring(0, 80)) + (item.description.length > 80 ? '…' : '') : '<span class="text-muted">—</span>'}</td>
-      <td>${item.active
-        ? '<span class="badge badge-active">● Active</span>'
-        : '<span class="badge badge-expired">● Inactive</span>'}</td>
-      <td>${window.fmt?.date(item.createdAt) || '—'}</td>
-      ${isAdmin ? `
-      <td>
-        <div class="flex gap-8">
-          <button class="btn btn-ghost btn-sm" onclick="openEditModal('${item.id}')">✏️ Edit</button>
-          <button class="btn btn-danger btn-sm" onclick="openDeleteModal('${item.id}')">🗑 Delete</button>
-        </div>
-      </td>` : ''}
-    </tr>
-  `).join('');
+  tbody.innerHTML = items.map(item => {
+    // ✅ FIX: Handle null insuranceType gracefully
+    const typeBadge = item.insuranceType?.name
+      ? `<span style="background:var(--color-info-light,#e8f0fe);color:var(--color-info,#1a73e8);
+           border-radius:4px;padding:2px 8px;font-size:12px;">
+           ${escapeHtml(item.insuranceType.name)}
+         </span>`
+      : `<span style="background:#f3f4f6;color:#9ca3af;border-radius:4px;padding:2px 8px;font-size:12px;font-style:italic;">
+           No Type
+         </span>`;
+
+    const isItemActive = item.active === true || item.active === 'true';
+
+    return `
+      <tr>
+        <td><strong>${escapeHtml(item.name)}</strong></td>
+        <td>${typeBadge}</td>
+        <td>${item.description
+          ? escapeHtml(item.description.substring(0, 80)) + (item.description.length > 80 ? '…' : '')
+          : '<span class="text-muted">—</span>'}</td>
+        <td>${isItemActive
+          ? '<span class="badge badge-active">● Active</span>'
+          : '<span class="badge badge-expired">● Inactive</span>'}</td>
+        <td>${window.fmt?.date(item.createdAt) || '—'}</td>
+        ${isAdmin ? `
+        <td>
+          <div class="flex gap-8">
+            <button class="btn btn-ghost btn-sm" onclick="openEditModal('${item.id}')">✏️ Edit</button>
+            <button class="btn btn-danger btn-sm" onclick="openDeleteModal('${item.id}')">🗑 Delete</button>
+          </div>
+        </td>` : ''}
+      </tr>
+    `;
+  }).join('');
 }
 
-// Setup event listeners for filter dropdowns
 function setupEventListeners() {
   const typeFilter = document.getElementById('typeFilter');
   if (typeFilter) {
@@ -261,7 +275,6 @@ function setupEventListeners() {
   }
 }
 
-// ✅ FIXED: Open create modal — style.display use karo, classList nahi
 function openCreateModal() {
   const modal = document.getElementById('itemModal');
   if (!modal) return;
@@ -272,13 +285,13 @@ function openCreateModal() {
   document.getElementById('description').value = '';
   document.getElementById('active').checked = true;
 
-  // Re-populate type select in case types loaded after init
   populateTypeSelect();
   document.getElementById('typeId').value = '';
 
   const saveBtn = document.getElementById('saveItemBtn');
   if (saveBtn) {
     saveBtn.textContent = 'Save Item';
+    saveBtn.disabled = false;
     saveBtn.onclick = () => saveItem();
   }
 
@@ -286,7 +299,6 @@ function openCreateModal() {
   document.body.style.overflow = 'hidden';
 }
 
-// ✅ FIXED: Open edit modal
 async function openEditModal(id) {
   try {
     const item = await api.get(`v1/insurance-items/${id}`);
@@ -302,15 +314,16 @@ async function openEditModal(id) {
     document.getElementById('itemId').value = item.id;
     document.getElementById('name').value = item.name || '';
     document.getElementById('description').value = item.description || '';
-    document.getElementById('active').checked = item.active === true;
+    document.getElementById('active').checked = item.active === true || item.active === 'true';
 
-    // Re-populate type select then set value
     populateTypeSelect();
+    // ✅ FIX: Set type value safely — empty string if no type
     document.getElementById('typeId').value = item.insuranceType?.id || '';
 
     const saveBtn = document.getElementById('saveItemBtn');
     if (saveBtn) {
       saveBtn.textContent = 'Update Item';
+      saveBtn.disabled = false;
       saveBtn.onclick = () => saveItem();
     }
 
@@ -322,38 +335,33 @@ async function openEditModal(id) {
   }
 }
 
-// ✅ FIXED: Save item (create or update)
 async function saveItem() {
-  const id = document.getElementById('itemId')?.value;
-  const typeId = document.getElementById('typeId')?.value;
-  const name = document.getElementById('name')?.value.trim();
+  const id          = document.getElementById('itemId')?.value;
+  const typeId      = document.getElementById('typeId')?.value;       // Can be empty — type is optional
+  const name        = document.getElementById('name')?.value.trim();
   const description = document.getElementById('description')?.value.trim();
-  const active = document.getElementById('active')?.checked ?? true;
+  const active      = document.getElementById('active')?.checked ?? true;
 
-  if (!typeId) {
-    window.showToast('Please select an insurance type', 'warning');
-    return;
-  }
-
+  // ✅ FIX: Only name is required — type is now optional
   if (!name) {
     window.showToast('Please enter item name', 'warning');
     return;
   }
 
-  const insuranceType = insuranceTypes.find(t => t.id === typeId);
-  if (!insuranceType) {
-    window.showToast('Invalid insurance type selected', 'error');
-    return;
+  // ✅ FIX: Build insuranceType object only if a type was selected
+  let insuranceTypeObj = null;
+  if (typeId) {
+    const insuranceType = insuranceTypes.find(t => t.id === typeId);
+    if (insuranceType) {
+      insuranceTypeObj = { id: typeId, name: insuranceType.name };
+    }
   }
 
   const itemData = {
     name,
     description: description || null,
     active,
-    insuranceType: {
-      id: typeId,
-      name: insuranceType.name
-    }
+    insuranceType: insuranceTypeObj  // null if no type selected — backend now accepts this
   };
 
   const saveBtn = document.getElementById('saveItemBtn');
@@ -387,7 +395,6 @@ async function saveItem() {
   }
 }
 
-// ✅ FIXED: Open delete modal
 function openDeleteModal(id) {
   deleteId = id;
   const modal = document.getElementById('deleteModal');
@@ -397,10 +404,8 @@ function openDeleteModal(id) {
   }
 }
 
-// Confirm delete
 async function confirmDelete() {
   if (!deleteId) return;
-
   try {
     const deletedBy = localStorage.getItem('insura_email') || 'admin';
     const result = await api.del(`v1/insurance-items/${deleteId}?deletedBy=${deletedBy}`);
@@ -415,7 +420,6 @@ async function confirmDelete() {
   }
 }
 
-// ✅ FIXED: Close modals using style.display (consistent with rest of app)
 function closeModal() {
   const modal = document.getElementById('itemModal');
   if (modal) {
@@ -433,12 +437,10 @@ function closeDeleteModal() {
   deleteId = null;
 }
 
-// Refresh data
 async function refreshData() {
   await loadItems();
 }
 
-// Helper escapeHtml (local fallback — window.escapeHtml bhi available hai)
 function escapeHtml(str) {
   if (!str) return '';
   return String(str)
@@ -449,7 +451,6 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-// ✅ Global exports
 window.initInsuranceItems = initInsuranceItems;
 window.openCreateModal    = openCreateModal;
 window.openEditModal      = openEditModal;
@@ -460,4 +461,4 @@ window.closeModal         = closeModal;
 window.closeDeleteModal   = closeDeleteModal;
 window.refreshData        = refreshData;
 
-console.log('Insurance Items module loaded ✅');
+console.log('✅ Insurance Items module loaded — insuranceType is now optional');

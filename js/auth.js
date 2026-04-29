@@ -58,7 +58,8 @@ async function handleLogin(e) {
   btn.innerHTML = '<span class="inline-spinner"></span> Signing in...';
   btn.disabled = true;
 
-  const data = await api.post('/auth/login', { email, password });
+  // ✅ CORRECT
+const data = await api.post('/api/auth/login', { email, password });
 
   btn.innerHTML = 'Sign In';
   btn.disabled = false;
@@ -88,8 +89,7 @@ async function handleRegister(e) {
   const body = { name, email, password };
   if (adminKey) body.adminKey = adminKey;
 
-  const data = await api.post('/auth/register', body);
-
+  const data = await api.post('/api/auth/register', body)
   btn.innerHTML = 'Create Account';
   btn.disabled = false;
 
