@@ -1,7 +1,8 @@
-// dashboard.js — Dashboard stats and charts (Payments removed)
+// dashboard.js — Dashboard stats, charts, reminders, and notifications
+
+// ─── DASHBOARD LOADER ─────────────────────────────────────
 
 async function loadDashboard() {
-  // ✅ FIXED: Use 'v1/dashboard' instead of '/dashboard'
   const data = await api.get('v1/dashboard');
   if (!data) return;
 
@@ -117,7 +118,7 @@ async function loadDashboard() {
   loadRemindersWidget();
 }
 
-// ─── STAT CARD — navigateTo optional ─────────────────────
+// ─── STAT CARD ────────────────────────────────────────────
 
 function statCard(label, value, color, icon, sub, navigateTo) {
   const colorMap = {
@@ -158,6 +159,8 @@ function statCard(label, value, color, icon, sub, navigateTo) {
   `;
 }
 
+// ─── CHARTS ───────────────────────────────────────────────
+
 function drawPolicyChart(data) {
   const canvas = document.getElementById('policy-chart');
   if (!canvas) return;
@@ -166,9 +169,9 @@ function drawPolicyChart(data) {
   canvas.width = W; canvas.height = H;
 
   const items = [
-    { label: 'Active',   value: data.activePolicies ?? 0,        color: '#10b981' },
-    { label: 'Expiring', value: data.expiringSoonPolicies ?? 0,   color: '#8b5cf6' },
-    { label: 'Expired',  value: data.expiredPolicies ?? 0, color: '#94a3b8' },
+    { label: 'Active',   value: data.activePolicies ?? 0,      color: '#10b981' },
+    { label: 'Expiring', value: data.expiringSoonPolicies ?? 0, color: '#8b5cf6' },
+    { label: 'Expired',  value: data.expiredPolicies ?? 0,      color: '#94a3b8' },
   ];
 
   const total = items.reduce((s, i) => s + i.value, 0);
@@ -198,11 +201,13 @@ function drawPolicyChart(data) {
     angle += sweep;
   });
 
+  // Donut hole
   ctx.beginPath();
   ctx.arc(cx, cy, ir, 0, 2 * Math.PI);
   ctx.fillStyle = '#ffffff';
   ctx.fill();
 
+  // Center total label
   ctx.fillStyle = '#0f172a';
   ctx.font = 'bold 18px Space Grotesk, sans-serif';
   ctx.textAlign = 'center';
@@ -211,6 +216,7 @@ function drawPolicyChart(data) {
   ctx.fillStyle = '#94a3b8';
   ctx.fillText('Total', cx, cy + 18);
 
+  // Legend
   const lx = 180, ly = 30;
   items.forEach((item, i) => {
     const y = ly + i * 38;
@@ -233,9 +239,7 @@ function drawItemsChart(data) {
   const W = canvas.offsetWidth || 300, H = 180;
   canvas.width = W; canvas.height = H;
 
-  // ✅ Use policiesByType from dashboard response
   const itemsByType = data.policiesByType || [];
-  
   const totalItems = itemsByType.reduce((s, i) => s + (i.count || 0), 0);
 
   if (totalItems === 0) {
@@ -246,19 +250,18 @@ function drawItemsChart(data) {
     return;
   }
 
-  const max = Math.max(...itemsByType.map(i => i.count || 0), 1);
-  const bw = Math.min(55, (W - 30) / itemsByType.length - 10);
-  const gap = 8;
-  const padL = 10;
-  const padB = 30;
+  const max    = Math.max(...itemsByType.map(i => i.count || 0), 1);
+  const bw     = Math.min(55, (W - 30) / itemsByType.length - 10);
+  const gap    = 8;
+  const padL   = 10;
+  const padB   = 30;
   const chartH = H - padB - 20;
-  
   const colors = ['#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899'];
 
   itemsByType.forEach((item, i) => {
-    const x = padL + i * (bw + gap);
+    const x  = padL + i * (bw + gap);
     const bh = Math.max((item.count / max) * chartH, item.count > 0 ? 4 : 0);
-    const y = H - padB - bh;
+    const y  = H - padB - bh;
 
     ctx.fillStyle = colors[i % colors.length];
     ctx.fillRect(x, y, bw, bh);
@@ -276,15 +279,13 @@ function drawItemsChart(data) {
   });
 }
 
+// ─── REMINDERS WIDGET ─────────────────────────────────────
+
 async function loadRemindersWidget() {
   const list = document.getElementById('reminders-list');
   if (!list) return;
 
-  const isAdmin = authUtils?.isAdmin() || false;
-  // ✅ FIXED: Use correct API path
-  const endpoint = isAdmin ? 'v1/reminders/pending' : 'v1/reminders/pending';
-
-  const data = await api.get(endpoint);
+  const data = await api.get('v1/reminders/pending');
   if (!data || !data.length) {
     list.innerHTML = `
       <div class="empty-state" style="background:transparent;border:none;padding:24px;">
@@ -296,8 +297,12 @@ async function loadRemindersWidget() {
   list.innerHTML = data.slice(0, 5).map(r => `
     <div class="reminder-item ${(r.severity || 'info').toLowerCase()}">
       <div>
-        <div style="font-size:0.825rem;font-weight:500;margin-bottom:3px">${window.escapeHtml(r.message || r.title || 'Reminder')}</div>
-        <div style="font-size:0.75rem;color:var(--text-muted)">${window.fmt.date(r.reminderDate)} · ${r.type || 'GENERAL'}</div>
+        <div style="font-size:0.825rem;font-weight:500;margin-bottom:3px">
+          ${window.escapeHtml(r.message || r.title || 'Reminder')}
+        </div>
+        <div style="font-size:0.75rem;color:var(--text-muted)">
+          ${window.fmt.date(r.reminderDate)} · ${r.type || 'GENERAL'}
+        </div>
       </div>
     </div>
   `).join('');
@@ -310,68 +315,154 @@ async function loadNotifications() {
   if (!notifList) return;
 
   try {
-    // ✅ FIXED: Use 'v1/notifications/user/current' or similar
+    const isAdmin       = authUtils?.isAdmin() || false;
     const notifications = await api.get('v1/notifications/my') || [];
-    const notifDot = document.getElementById('notif-dot');
+    const notifDot      = document.getElementById('notif-dot');
+    const unreadCount   = notifications.filter(n => !n.read).length;
 
-    const unreadCount = notifications.filter(n => !n.read).length;
-    if (notifDot) notifDot.style.display = unreadCount > 0 ? 'block' : 'none';
+    // ── Dot badge ──────────────────────────────────────────
+    if (notifDot) {
+      notifDot.style.display = unreadCount > 0 ? 'block' : 'none';
+      notifDot.textContent   = unreadCount > 9 ? '9+' : (unreadCount || '');
+    }
 
+    // ── Empty state ────────────────────────────────────────
     if (!notifications.length) {
       notifList.innerHTML = `
-        <div class="notif-empty">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <div class="notif-empty" style="text-align:center;padding:32px 16px;">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" style="opacity:0.4;margin-bottom:8px;">
             <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
             <path d="M13.73 21a2 2 0 01-3.46 0"/>
           </svg>
-          <p>No notifications</p>
+          <p style="color:var(--text-muted);margin:0;font-size:0.85rem;">No notifications yet</p>
         </div>
       `;
       return;
     }
 
+    // ── Header ─────────────────────────────────────────────
     notifList.innerHTML = `
-      <div style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
-        <span style="font-size:0.75rem;font-weight:600;">Notifications (${unreadCount} unread)</span>
-        <button class="btn btn-ghost btn-sm" onclick="clearAllNotifications()" style="font-size:0.7rem;">Clear All</button>
+      <div style="padding:8px 12px;border-bottom:1px solid var(--border);
+        display:flex;justify-content:space-between;align-items:center;
+        position:sticky;top:0;background:var(--card);z-index:1;">
+        <span style="font-size:0.75rem;font-weight:600;">
+          ${isAdmin ? 'All Notifications' : 'My Notifications'}
+          ${unreadCount > 0
+            ? `<span style="color:#ef4444;">(${unreadCount} unread)</span>`
+            : ''}
+        </span>
+        <div style="display:flex;gap:6px;">
+          ${unreadCount > 0 ? `
+            <button class="btn btn-ghost btn-sm"
+              onclick="markAllNotificationsRead()"
+              style="font-size:0.7rem;">Mark all read</button>
+          ` : ''}
+          <button class="btn btn-ghost btn-sm"
+            onclick="clearAllNotifications()"
+            style="font-size:0.7rem;color:#ef4444;">Clear All</button>
+        </div>
       </div>
+
       ${notifications.map(notif => `
-        <div class="notif-item ${notif.read ? '' : 'unread'}" data-id="${notif.id}" onclick="markNotificationRead('${notif.id}')">
-          <div class="notif-icon" style="background:${getNotifColor(notif.type)};color:white;font-size:14px;">
+        <div class="notif-item ${notif.read ? '' : 'unread'}"
+          data-id="${notif.id}"
+          onclick="markNotificationRead('${notif.id}')"
+          style="cursor:pointer;padding:10px 12px;border-bottom:1px solid var(--border);
+            display:flex;align-items:flex-start;gap:10px;
+            background:${notif.read ? 'transparent' : 'rgba(99,102,241,0.04)'};
+            transition:background 0.2s;"
+          onmouseenter="this.style.background='var(--hover)'"
+          onmouseleave="this.style.background='${notif.read ? 'transparent' : 'rgba(99,102,241,0.04)'}'">
+
+          <div style="background:${getNotifColor(notif.type)};color:white;font-size:13px;
+            min-width:32px;height:32px;border-radius:50%;
+            display:flex;align-items:center;justify-content:center;flex-shrink:0;">
             ${getNotifIcon(notif.type)}
           </div>
-          <div class="notif-text">
-            <p>${window.escapeHtml(notif.message)}</p>
-            <div class="time">${window.fmt.date(notif.createdAt)}</div>
+
+          <div style="flex:1;min-width:0;">
+            <p style="margin:0 0 2px 0;font-size:0.8rem;
+              font-weight:${notif.read ? '400' : '600'};
+              word-break:break-word;line-height:1.4;">
+              ${window.escapeHtml(notif.message)}
+            </p>
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:3px;">
+              <span style="font-size:0.68rem;color:var(--text-muted);">
+                🕐 ${window.fmt.date(notif.createdAt)}
+              </span>
+              ${isAdmin && notif.userEmail ? `
+                <span style="font-size:0.68rem;background:rgba(99,102,241,0.12);
+                  color:#6366f1;padding:1px 7px;border-radius:10px;font-weight:500;">
+                  👤 ${window.escapeHtml(notif.userName || notif.userEmail)}
+                </span>
+              ` : ''}
+              <span style="font-size:0.68rem;
+                background:${getNotifColor(notif.type)}22;
+                color:${getNotifColor(notif.type)};
+                padding:1px 7px;border-radius:10px;font-weight:500;">
+                ${notif.type || 'GENERAL'}
+              </span>
+              ${!notif.read ? `
+                <span style="width:6px;height:6px;background:#6366f1;
+                  border-radius:50%;display:inline-block;"></span>
+              ` : ''}
+            </div>
           </div>
-          <button class="delete-notif" onclick="event.stopPropagation(); deleteNotification('${notif.id}')"
-            style="background:none;border:none;cursor:pointer;color:var(--text-muted);padding:4px;border-radius:4px;">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+
+          <button onclick="event.stopPropagation(); deleteNotification('${notif.id}')"
+            style="background:none;border:none;cursor:pointer;color:var(--text-muted);
+              padding:4px;border-radius:4px;flex-shrink:0;opacity:0.6;"
+            onmouseenter="this.style.opacity='1';this.style.color='#ef4444'"
+            onmouseleave="this.style.opacity='0.6';this.style.color='var(--text-muted)'"
+            title="Delete">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
             </svg>
           </button>
         </div>
       `).join('')}
     `;
+
   } catch (error) {
     console.error('Failed to load notifications:', error);
-    notifList.innerHTML = '<div class="notif-empty">Failed to load notifications</div>';
+    notifList.innerHTML = `
+      <div style="text-align:center;padding:24px;color:var(--text-muted);font-size:0.85rem;">
+        Failed to load notifications
+      </div>`;
   }
 }
 
+// ─── NOTIFICATION HELPERS ─────────────────────────────────
+
 function getNotifColor(type) {
-  const colors = { REMINDER: '#3b82f6', EXPIRY: '#ef4444', GENERAL: '#8b5cf6' };
+  const colors = {
+    GENERAL:    '#6366f1',
+    EXPIRY:     '#ef4444',
+    EXPIRYSOON: '#f59e0b',
+    RENEWAL:    '#10b981',
+    REMINDER:   '#3b82f6',
+  };
   return colors[type] || '#64748b';
 }
 
 function getNotifIcon(type) {
-  const icons = { REMINDER: '🔔', EXPIRY: '⚠️', GENERAL: '📢' };
+  const icons = {
+    GENERAL:    '📢',
+    EXPIRY:     '⚠️',
+    EXPIRYSOON: '⏰',
+    RENEWAL:    '🔄',
+    REMINDER:   '🔔',
+  };
   return icons[type] || '📌';
 }
 
+// ─── NOTIFICATION ACTIONS ─────────────────────────────────
+
 async function markNotificationRead(id) {
   try {
-    // ✅ FIXED: Use correct API path
     await api.patch(`v1/notifications/${id}/read`, {});
     await loadNotifications();
   } catch (error) {
@@ -379,9 +470,21 @@ async function markNotificationRead(id) {
   }
 }
 
+async function markAllNotificationsRead() {
+  try {
+    await api.patch('v1/notifications/read-all', {});
+    window.showToast('All notifications marked as read', 'success');
+    await loadNotifications();
+  } catch (error) {
+    console.error('Failed to mark all as read:', error);
+    window.showToast('Failed to mark all as read', 'error');
+  }
+}
+
 async function deleteNotification(id) {
   window.showConfirm('Delete Notification', 'Delete this notification?', async () => {
-    const result = await api.del(`v1/notifications/${id}?deletedBy=${localStorage.getItem('insura_email') || 'user'}`);
+    const deletedBy = encodeURIComponent(localStorage.getItem('insura_email') || 'user');
+    const result = await api.del(`v1/notifications/${id}?deletedBy=${deletedBy}`);
     if (result !== null) {
       window.showToast('Notification deleted', 'success');
       await loadNotifications();
@@ -390,24 +493,40 @@ async function deleteNotification(id) {
 }
 
 async function clearAllNotifications() {
-  window.showConfirm('Clear All Notifications', 'Delete all notifications?', async () => {
-    try {
-      const notifications = await api.get('v1/notifications/my') || [];
-      for (const n of notifications) {
-        await api.del(`v1/notifications/${n.id}?deletedBy=${localStorage.getItem('insura_email') || 'user'}`);
+  window.showConfirm(
+    'Clear All Notifications',
+    'Delete all notifications? This cannot be undone.',
+    async () => {
+      try {
+        window.showSpinner?.();
+        const notifications = await api.get('v1/notifications/my') || [];
+        if (!notifications.length) {
+          window.showToast('No notifications to clear', 'info');
+          window.hideSpinner?.();
+          return;
+        }
+        const deletedBy = encodeURIComponent(localStorage.getItem('insura_email') || 'user');
+        await Promise.all(
+          notifications.map(n => api.del(`v1/notifications/${n.id}?deletedBy=${deletedBy}`))
+        );
+        window.hideSpinner?.();
+        window.showToast('All notifications cleared', 'success');
+        await loadNotifications();
+      } catch (error) {
+        window.hideSpinner?.();
+        window.showToast('Failed to clear notifications', 'error');
       }
-      window.showToast('All notifications cleared', 'success');
-      await loadNotifications();
-    } catch (error) {
-      window.showToast('Failed to clear notifications', 'error');
     }
-  });
+  );
 }
 
-window.loadDashboard          = loadDashboard;
-window.loadNotifications      = loadNotifications;
-window.markNotificationRead   = markNotificationRead;
-window.deleteNotification     = deleteNotification;
-window.clearAllNotifications  = clearAllNotifications;
+// ─── EXPORTS ──────────────────────────────────────────────
+
+window.loadDashboard            = loadDashboard;
+window.loadNotifications        = loadNotifications;
+window.markNotificationRead     = markNotificationRead;
+window.markAllNotificationsRead = markAllNotificationsRead;
+window.deleteNotification       = deleteNotification;
+window.clearAllNotifications    = clearAllNotifications;
 
 console.log('Dashboard module loaded ✅');

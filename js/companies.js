@@ -20,6 +20,8 @@
 // ✅ FIX: Type matching by ID first, name as fallback
 // ✅ FIX: Items with NULL insuranceType are always shown (not filtered out)
 // ✅ FIX: /all endpoint failure properly caught + fallback to /v1/insurance-items
+// ✅ FIX: calculatePolicyStatus() recalculates status client-side so EXPIRED policies
+//         show correctly even if backend hasn't updated them yet
 
 'use strict';
 
@@ -28,6 +30,35 @@ let currentCompanyName = null;
 let currentView        = 'table';
 let currentPoliciesData  = [];
 let currentAnalyticsData = null;
+
+// ─── STATUS CALCULATOR (same logic as policies.js) ────────
+// This is the KEY FIX: always recalculate status from endDate
+// instead of trusting the stale value stored in the backend.
+
+function calculatePolicyStatus(policy) {
+  // Preserve terminal statuses that aren't date-driven
+  if (policy.status && (policy.status === 'RENEWED' || policy.status === 'CANCELLED')) {
+    return policy.status;
+  }
+  const endDate = policy.endDate;
+  if (!endDate) return 'ACTIVE';
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const end = new Date(endDate);
+  end.setHours(0, 0, 0, 0);
+  const diffDays = Math.ceil((end - today) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0)  return 'EXPIRED';
+  if (diffDays <= 30) return 'EXPIRING_SOON';
+  return 'ACTIVE';
+}
+
+// Apply recalculated status to a policy array
+function recalcStatuses(policies) {
+  return (policies || []).map(p => ({
+    ...p,
+    status: calculatePolicyStatus(p)
+  }));
+}
 
 // ─── STYLES ───────────────────────────────────────────────
 
@@ -362,7 +393,8 @@ function getExportFiltered() {
   const status  = document.getElementById('exp-status')?.value  || '';
   const payment = document.getElementById('exp-payment')?.value || '';
 
-  return (currentPoliciesData || []).filter(p => {
+  // ✅ Use recalculated status when filtering
+  return (currentPoliciesData || []).map(p => ({ ...p, status: calculatePolicyStatus(p) })).filter(p => {
     const endDate = p.endDate || '';
     const paid    = p.amountPaid    || 0;
     const premium = p.premiumAmount || 0;
@@ -810,8 +842,11 @@ window.showCompanyPolicies = async function (companyId, companyName) {
       api.get(`v1/policies/company/${companyId}`).catch(() => []),
       api.get(`v1/companies/${companyId}/analytics`).catch(() => null)
     ]);
-    currentPoliciesData  = policies || [];
+
+    // ✅ KEY FIX: recalculate status client-side before storing
+    currentPoliciesData  = recalcStatuses(policies || []);
     currentAnalyticsData = analytics;
+
     if (subtitle) subtitle.textContent = `${currentPoliciesData.length} ${currentPoliciesData.length === 1 ? 'policy' : 'policies'}`;
     renderCompanyPolicyTable(currentPoliciesData);
     updateExportPreview();
@@ -831,7 +866,8 @@ function renderCompanyPolicyTable(policies) {
     return;
   }
 
-  const sorted = [...policies].sort((a, b) =>
+  // ✅ Always recalculate status before rendering
+  const sorted = recalcStatuses([...policies]).sort((a, b) =>
     (a.policyNumber || '').localeCompare(b.policyNumber || '', undefined, { numeric: true })
   );
 
@@ -922,9 +958,12 @@ function buildCompanyPolicyRows(policies) {
       No policies match the selected filters</td></tr>`;
   }
   return policies.map(p => {
+    // ✅ Recalculate status for each row so display is always accurate
+    const status      = calculatePolicyStatus(p);
     const paid        = p.amountPaid || 0;
-    const statusClass = p.status === 'ACTIVE' ? 'co-badge-active' : (p.status === 'EXPIRING_SOON' ? 'co-badge-expiring' : 'co-badge-expired');
-    const statusText  = p.status === 'ACTIVE' ? '● Active' : (p.status === 'EXPIRING_SOON' ? '⚠️ Expiring' : '🔴 Expired');
+    const statusClass = status === 'ACTIVE' ? 'co-badge-active' : (status === 'EXPIRING_SOON' ? 'co-badge-expiring' : 'co-badge-expired');
+    const statusText  = status === 'ACTIVE' ? '● Active' : (status === 'EXPIRING_SOON' ? '⚠️ Expiring' : '🔴 Expired');
+    const endStyle    = status === 'EXPIRED' ? 'color:#ef4444;font-weight:700;' : status === 'EXPIRING_SOON' ? 'color:#f59e0b;font-weight:600;' : '';
     return `
       <tr onclick="window._goPolicyDetail('${p.id}')">
         <td><span class="co-mono">${window.escapeHtml(p.policyNumber || '')}</span></td>
@@ -932,7 +971,7 @@ function buildCompanyPolicyRows(policies) {
         <td>${window.escapeHtml(p.provider?.name || p.providerName || '—')}</td>
         <td><span class="${statusClass}">${statusText}</span></td>
         <td><strong>${window.fmt.currency(p.premiumAmount || 0)}</strong></td>
-        <td>${p.endDate ? window.fmt.date(p.endDate) : '—'}</td>
+        <td><span style="${endStyle}">${p.endDate ? window.fmt.date(p.endDate) : '—'}</span></td>
         <td><strong style="color:#10b981;">${window.fmt.currency(paid)}</strong></td>
       </tr>`;
   }).join('');
@@ -943,7 +982,8 @@ window.applyCompanyPolicyFilter = function () {
   const end    = document.getElementById('cp-filter-end')?.value    || '';
   const status = document.getElementById('cp-filter-status')?.value || '';
 
-  const sorted = [...(currentPoliciesData || [])].sort((a, b) =>
+  // ✅ Recalculate statuses before filtering
+  const sorted = recalcStatuses([...(currentPoliciesData || [])]).sort((a, b) =>
     (a.policyNumber || '').localeCompare(b.policyNumber || '', undefined, { numeric: true })
   );
   const filtered = sorted.filter(p => {
@@ -1027,7 +1067,8 @@ window.renderCompanyGraphs = async function (companyId) {
       <div id="graph-charts-area"></div>
     `;
 
-    await _renderGraphCharts(currentPoliciesData, currentAnalyticsData);
+    // ✅ Pass recalculated policies to graph renderer
+    await _renderGraphCharts(recalcStatuses(currentPoliciesData), currentAnalyticsData);
   } catch (error) {
     console.error('Graph render error:', error);
     graphDiv.innerHTML = `<div style="padding:24px;text-align:center;color:var(--red);">
@@ -1040,7 +1081,8 @@ window.applyGraphFilter = async function () {
   const end    = document.getElementById('gr-filter-end')?.value    || '';
   const status = document.getElementById('gr-filter-status')?.value || '';
 
-  const filtered = (currentPoliciesData || []).filter(p => {
+  // ✅ Recalculate statuses before filtering graphs
+  const filtered = recalcStatuses(currentPoliciesData || []).filter(p => {
     const ed = p.endDate || '';
     return (!start || ed >= start) && (!end || ed <= end) && (!status || p.status === status);
   });
@@ -1058,7 +1100,8 @@ window.clearGraphFilter = async function () {
   const st = document.getElementById('gr-filter-status'); if (st) st.value = '';
   const c  = document.getElementById('gr-filter-count');  if (c)  c.textContent = '';
   await loadChartJs();
-  await _renderGraphCharts(currentPoliciesData || [], currentAnalyticsData);
+  // ✅ Always pass recalculated data
+  await _renderGraphCharts(recalcStatuses(currentPoliciesData || []), currentAnalyticsData);
 };
 
 function _destroyAllCharts() {
@@ -1069,6 +1112,7 @@ function _destroyAllCharts() {
 }
 
 // ─── MAIN GRAPH RENDERER ──────────────────────────────────
+// policies passed in here already have recalculated statuses
 
 async function _renderGraphCharts(policies, analytics) {
   _destroyAllCharts();
@@ -1165,7 +1209,6 @@ async function _renderGraphCharts(policies, analytics) {
   }).join('');
 
   // ── Insurance Items Aggregates ─────────────────────────────
-  // ✅ FIX: Try /all endpoint first, fallback to default, then empty array
   let itemsData = [];
   try {
     const allResult = await api.get('v1/insurance-items/all').catch(err => {
@@ -1174,52 +1217,38 @@ async function _renderGraphCharts(policies, analytics) {
     });
     if (Array.isArray(allResult)) {
       itemsData = allResult;
-      console.log(`✅ Loaded ${itemsData.length} items from /all endpoint`);
     } else {
-      // Fallback to default endpoint (active-only, but better than nothing)
       const defaultResult = await api.get('v1/insurance-items').catch(err => {
         console.warn('⚠️ Default items endpoint also failed:', err?.message || err);
         return null;
       });
       itemsData = Array.isArray(defaultResult) ? defaultResult : [];
-      console.log(`✅ Loaded ${itemsData.length} items from default endpoint (fallback)`);
     }
   } catch(e) {
     console.error('❌ Failed to load insurance items:', e);
     itemsData = [];
   }
 
-  // ✅ FIX: Collect type IDs and names used by this company's policies
   const companyTypeIds   = new Set(policies.map(p => p.insuranceType?.id).filter(Boolean));
   const companyTypeNames = new Set(
     policies.map(p => p.insuranceTypeName || p.insuranceType?.name).filter(Boolean)
   );
-
   const hasTypeFilter = companyTypeIds.size > 0 || companyTypeNames.size > 0;
 
-  // ✅ KEY FIX: Items with NULL insuranceType are ALWAYS included (not filtered out).
-  //            Only filter by type when the item actually has a type assigned.
   const relevantItems = itemsData.filter(item => {
-    // Item has no insurance type → always show it
     if (!item.insuranceType || !item.insuranceType.id) return true;
-    // No type filter possible (company has no typed policies) → show all
     if (!hasTypeFilter) return true;
-    // Match by ID first (most reliable), then by name as fallback
     const itemTypeId   = item.insuranceType.id;
     const itemTypeName = item.insuranceType.name;
     return (itemTypeId   && companyTypeIds.has(itemTypeId))
         || (itemTypeName && companyTypeNames.has(itemTypeName));
   });
 
-  console.log(`📦 Insurance items — total fetched: ${itemsData.length}, relevant: ${relevantItems.length}`);
-
-  // ✅ FIX: Robustly detect active status (handles boolean true, string "true", 1)
   const isActive = i => i.active === true || i.active === 'true' || i.active === 1;
 
   const itemActiveCount   = relevantItems.filter(isActive).length;
   const itemInactiveCount = relevantItems.filter(i => !isActive(i)).length;
 
-  // Group items by insurance type (use "No Type" for unassigned items)
   const itemsByType = {};
   relevantItems.forEach(item => {
     const t = item.insuranceType?.name || 'No Type Assigned';
@@ -1235,7 +1264,6 @@ async function _renderGraphCharts(policies, analytics) {
   const itemTypeInacts  = itemTypeLabels.map(t => itemsByType[t].inactive);
   const itemChartH      = Math.max(140, itemTypeLabels.length * 46);
 
-  // Items detail table rows (active first, inactive after)
   const sortedItems   = [...relevantItems].sort((a, b) => (isActive(b) ? 1 : 0) - (isActive(a) ? 1 : 0));
   const itemTableRows = sortedItems.map(item => `
     <tr style="border-bottom:1px solid var(--border,#f0f0f0);">
@@ -1447,13 +1475,11 @@ async function _renderGraphCharts(policies, analytics) {
 
     <!-- Items Charts: Stacked Bar + Donut -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:16px;">
-
       <div class="co-chart-card">
         <div class="co-chart-title">📊 Items by Insurance Type</div>
         <div class="co-chart-subtitle">Active vs inactive items per type</div>
         <div style="position:relative;height:${itemChartH}px;"><canvas id="gc-items-type"></canvas></div>
       </div>
-
       <div class="co-chart-card">
         <div class="co-chart-title">🔵 Active vs Inactive Items</div>
         <div class="co-chart-subtitle">Overall item status distribution</div>
@@ -1598,7 +1624,7 @@ async function _renderGraphCharts(policies, analytics) {
 
   // ── INSURANCE ITEMS CHARTS ────────────────────────────────
 
-  // 8. Items by type — grouped horizontal bar (active vs inactive)
+  // 8. Items by type
   const itemsTypeCtx = document.getElementById('gc-items-type');
   if (itemsTypeCtx && itemTypeLabels.length) {
     window._companyCharts.itemsType = new Chart(itemsTypeCtx, {
@@ -1611,37 +1637,20 @@ async function _renderGraphCharts(policies, analytics) {
         ]
       },
       options: {
-        indexAxis: 'y',
-        ...baseOpts,
-        plugins: {
-          legend: { position:'top', labels:{ padding:14, font:{size:12} } },
-          tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.raw} item${ctx.raw===1?'':'s'}` } }
-        },
-        scales: {
-          x: { beginAtZero:true, stacked:false, ticks:{ stepSize:1, font:{size:11} }, grid:{color:'rgba(0,0,0,.05)'} },
-          y: { ticks:{ font:{size:11}, callback:function(v){ const l=this.getLabelForValue(v); return l.length>22?l.substring(0,20)+'…':l; } } }
-        }
+        indexAxis: 'y', ...baseOpts,
+        plugins: { legend:{ position:'top', labels:{ padding:14, font:{size:12} } }, tooltip:{ callbacks:{ label: ctx => ` ${ctx.dataset.label}: ${ctx.raw} item${ctx.raw===1?'':'s'}` } } },
+        scales: { x:{ beginAtZero:true, stacked:false, ticks:{ stepSize:1, font:{size:11} }, grid:{color:'rgba(0,0,0,.05)'} }, y:{ ticks:{ font:{size:11}, callback:function(v){ const l=this.getLabelForValue(v); return l.length>22?l.substring(0,20)+'…':l; } } } }
       }
     });
   }
 
-  // 9. Items Active / Inactive donut
+  // 9. Items Active/Inactive donut
   const itemsDonutCtx = document.getElementById('gc-items-donut');
   if (itemsDonutCtx && relevantItems.length) {
     window._companyCharts.itemsDonut = new Chart(itemsDonutCtx, {
       type: 'doughnut',
-      data: {
-        labels: ['Active','Inactive'],
-        datasets: [{ data:[itemActiveCount, itemInactiveCount], backgroundColor:['#10b981','#ef4444'], borderWidth:2, borderColor:'transparent' }]
-      },
-      options: {
-        ...baseOpts,
-        cutout: '68%',
-        plugins: {
-          legend: { position:'bottom', labels:{ padding:16, font:{size:12} } },
-          tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.raw} item${ctx.raw===1?'':'s'}` } }
-        }
-      }
+      data: { labels:['Active','Inactive'], datasets:[{ data:[itemActiveCount, itemInactiveCount], backgroundColor:['#10b981','#ef4444'], borderWidth:2, borderColor:'transparent' }] },
+      options: { ...baseOpts, cutout:'68%', plugins:{ legend:{ position:'bottom', labels:{ padding:16, font:{size:12} } }, tooltip:{ callbacks:{ label: ctx => ` ${ctx.label}: ${ctx.raw} item${ctx.raw===1?'':'s'}` } } } }
     });
   }
 }
@@ -1680,4 +1689,4 @@ window.applyGraphFilter           = window.applyGraphFilter;
 window.clearGraphFilter           = window.clearGraphFilter;
 window._destroyAllCharts          = _destroyAllCharts;
 
-console.log('✅ Companies module — Items graph fixed: null-type items included · /all fallback · robust isActive check');
+console.log('✅ Companies module — client-side status recalculation: EXPIRED policies now display correctly');
