@@ -1,12 +1,11 @@
 // types.js — Insurance Types module
-// When type is selected in policy form, insurance items auto-load (handled in policies.js)
 
 let typesData = [];
 
 async function loadTypes() {
   const isAdmin = authUtils?.isAdmin() || false;
-  const data = await api.get('v1/insurance-types');
-  typesData = data || [];
+  const data    = await api.get('v1/insurance-types');
+  typesData     = data || [];
 
   document.getElementById('dash-content').innerHTML = `
     <div class="section-header">
@@ -25,12 +24,11 @@ async function loadTypes() {
       </div>
     </div>
 
-    <!-- Info banner -->
     <div style="background:var(--accent-soft);border:1px solid rgba(59,130,246,0.25);border-radius:10px;
       padding:12px 16px;margin-bottom:20px;display:flex;align-items:center;gap:10px;font-size:13px;">
       <span style="font-size:18px;">ℹ️</span>
       <span style="color:var(--text-secondary);">
-        When adding a policy, selecting an <strong>Insurance Type</strong> will automatically show related 
+        When adding a policy, selecting an <strong>Insurance Type</strong> will automatically show related
         <strong>Insurance Items</strong> for that type.
       </span>
     </div>
@@ -52,7 +50,6 @@ async function loadTypes() {
       </table>
     </div>
 
-    <!-- Modal inside dash-content -->
     <div id="type-modal" class="modal" style="display:none">
       <div class="modal-content" style="max-width:520px;">
         <div class="modal-header">
@@ -77,8 +74,7 @@ async function loadTypes() {
           </div>
           <div style="margin-top:16px;padding:12px;background:var(--accent-soft);
             border-radius:8px;font-size:12px;color:var(--text-secondary);">
-            💡 After creating a type, go to <strong>Insurance Items</strong> to add specific items 
-            (e.g. for "Vehicle" type → add "Honda Jazz", "Toyota Camry", etc.)
+            💡 After creating a type, go to <strong>Insurance Items</strong> to add specific items.
           </div>
         </div>
         <div class="modal-footer">
@@ -89,27 +85,17 @@ async function loadTypes() {
     </div>
   `;
 
-  // Search listener
   setTimeout(() => {
     const searchInput = document.getElementById('types-search');
     if (searchInput) {
       searchInput.addEventListener('input', (e) => {
         const term = e.target.value.toLowerCase();
-        const rows = document.querySelectorAll('#types-tbody tr');
-        rows.forEach(row => {
+        document.querySelectorAll('#types-tbody tr').forEach(row => {
           row.style.display = row.textContent.toLowerCase().includes(term) ? '' : 'none';
         });
       });
     }
   }, 100);
-}
-
-// Load insurance items count per type
-async function getItemCountForType(typeId) {
-  try {
-    const items = await api.get('v1/insurance-items') || [];
-    return items.filter(i => i.insuranceType?.id === typeId || i.insuranceTypeId === typeId).length;
-  } catch { return 0; }
 }
 
 function renderTypeRows(data, isAdmin) {
@@ -124,15 +110,15 @@ function renderTypeRows(data, isAdmin) {
           <div style="width:32px;height:32px;border-radius:8px;background:var(--accent-soft);
             color:var(--accent);display:flex;align-items:center;justify-content:center;
             font-size:11px;font-weight:700;flex-shrink:0;">
-            ${window.escapeHtml(t.name).substring(0,2).toUpperCase()}
+            ${window.escapeHtml(t.name).substring(0, 2).toUpperCase()}
           </div>
           <strong>${window.escapeHtml(t.name) || '—'}</strong>
         </div>
       </td>
       <td>${window.escapeHtml(t.description) || '<span class="text-muted">—</span>'}</td>
       <td>
-        <button class="btn btn-ghost btn-sm" style="font-size:11px;" 
-          onclick="window.viewTypeItems('${t.id}', '${window.escapeHtml(t.name).replace(/'/g,"\\'")}')"
+        <button class="btn btn-ghost btn-sm" style="font-size:11px;"
+          onclick="window.viewTypeItems('${t.id}', '${window.escapeHtml(t.name).replace(/'/g, "\\'")}')"
           title="View insurance items for this type">
           🏷️ View Items
         </button>
@@ -150,15 +136,11 @@ function renderTypeRows(data, isAdmin) {
   `).join('');
 }
 
-// View items for a specific type
-window.viewTypeItems = async function(typeId, typeName) {
+window.viewTypeItems = async function (typeId, typeName) {
   if (window.navigate) window.navigate('insuranceItems');
   setTimeout(() => {
     const filterEl = document.getElementById('typeFilter');
-    if (filterEl) {
-      filterEl.value = typeId;
-      filterEl.dispatchEvent(new Event('change'));
-    }
+    if (filterEl) { filterEl.value = typeId; filterEl.dispatchEvent(new Event('change')); }
   }, 500);
 };
 
@@ -181,7 +163,7 @@ function openEditTypeModal(id) {
   if (!modal) return;
   const type = typesData.find(t => t.id === id);
   if (!type) { window.showToast('Type not found', 'error'); return; }
-  document.getElementById('type-name').value = type.name || '';
+  document.getElementById('type-name').value = type.name        || '';
   document.getElementById('type-desc').value = type.description || '';
   const activeEl = document.getElementById('type-active');
   if (activeEl) activeEl.checked = !!type.active;
@@ -198,19 +180,15 @@ function closeTypeModal() {
 }
 
 async function submitType() {
-  const name = document.getElementById('type-name')?.value.trim();
+  const name        = document.getElementById('type-name')?.value.trim();
   const description = document.getElementById('type-desc')?.value.trim();
-  const active = document.getElementById('type-active')?.checked ?? true;
+  const active      = document.getElementById('type-active')?.checked ?? true;
   if (!name) { window.showToast('Name is required', 'warning'); return; }
   const saveBtn = document.getElementById('type-save-btn');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving...'; }
   try {
     const result = await api.post('v1/insurance-types', { name, description, active });
-    if (result) {
-      window.showToast('Insurance type added!', 'success');
-      closeTypeModal();
-      await loadTypes();
-    }
+    if (result) { window.showToast('Insurance type added!', 'success'); closeTypeModal(); await loadTypes(); }
   } catch (error) {
     window.showToast(error.message || 'Failed to add type', 'error');
   } finally {
@@ -219,19 +197,15 @@ async function submitType() {
 }
 
 async function updateType(id) {
-  const name = document.getElementById('type-name')?.value.trim();
+  const name        = document.getElementById('type-name')?.value.trim();
   const description = document.getElementById('type-desc')?.value.trim();
-  const active = document.getElementById('type-active')?.checked ?? true;
+  const active      = document.getElementById('type-active')?.checked ?? true;
   if (!name) { window.showToast('Name is required', 'warning'); return; }
   const saveBtn = document.getElementById('type-save-btn');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Updating...'; }
   try {
     const result = await api.put(`v1/insurance-types/${id}`, { name, description, active });
-    if (result) {
-      window.showToast('Insurance type updated!', 'success');
-      closeTypeModal();
-      await loadTypes();
-    }
+    if (result) { window.showToast('Insurance type updated!', 'success'); closeTypeModal(); await loadTypes(); }
   } catch (error) {
     window.showToast(error.message || 'Failed to update type', 'error');
   } finally {
@@ -240,17 +214,13 @@ async function updateType(id) {
 }
 
 async function deleteType(id, name) {
-  const confirmed = confirm(`Delete insurance type "${name}"? This cannot be undone.`);
-  if (!confirmed) return;
+  if (!confirm(`Delete insurance type "${name}"? This cannot be undone.`)) return;
   try {
     window.showSpinner();
     const deletedBy = localStorage.getItem('insura_email') || 'admin';
-    const result = await api.del(`v1/insurance-types/${id}?deletedBy=${deletedBy}`);
+    const result    = await api.del(`v1/insurance-types/${id}?deletedBy=${deletedBy}`);
     window.hideSpinner();
-    if (result !== null) {
-      window.showToast('Insurance type deleted!', 'success');
-      await loadTypes();
-    }
+    if (result !== null) { window.showToast('Insurance type deleted!', 'success'); await loadTypes(); }
   } catch (error) {
     window.hideSpinner();
     window.showToast(error.message || 'Failed to delete type', 'error');
@@ -265,4 +235,4 @@ window.submitType        = submitType;
 window.updateType        = updateType;
 window.deleteType        = deleteType;
 
-console.log('Insurance Types module loaded ✅');
+devLog('Insurance Types module loaded ✅');

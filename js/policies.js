@@ -6,6 +6,7 @@
 // ✅ FIX 5: Removed "Remaining" card from Payment Details
 // ✅ FIX 6: Fully responsive
 // ✅ FIX 7: Renew API integration (calls /renew endpoint)
+// ✅ FIX 8: "Reference / Notes" field moved into Payment Details section
 
 let policiesData = [];
 let policyFilter = 'all';
@@ -193,7 +194,7 @@ async function loadPolicies() {
       <table class="data-table">
         <thead>
           <tr>
-            <th>Policy Number</th><th>Company</th><th>Provider</th><th>Type</th>
+            <th>Policy Number</th><th>Company</th><th>Provider</th><th>Type</th><th>Insurance Item</th>
             <th>Premium</th><th>Paid</th><th>Start</th><th>End</th><th>Status</th><th>Actions</th>
           </tr>
         </thead>
@@ -446,8 +447,8 @@ window.viewDocument = async function (docId, fileName, docType, policyId, fileTy
   const apiUrl = window.api.buildUrl(`v1/policies/${policyId}/documents/${docId}/download`);
   const token  = localStorage.getItem('insura_token');
 
-  const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(fileName);
-  const isPDF   = /\.pdf$/i.test(fileName);
+  const extIsImage = /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(fileName || '');
+  const extIsPDF   = /\.pdf$/i.test(fileName || '');
 
   let blobUrl = null;
 
@@ -461,20 +462,32 @@ window.viewDocument = async function (docId, fileName, docType, policyId, fileTy
     const blob = await res.blob();
     blobUrl = URL.createObjectURL(blob);
 
+    const realType = (blob.type && blob.type !== 'application/octet-stream') ? blob.type
+                    : (fileType || '');
+    const isImage  = realType.startsWith('image/')       || (!realType && extIsImage);
+    const isPDF    = realType === 'application/pdf'       || (!realType && extIsPDF);
+
     if (isImage) {
       content.innerHTML = `
         <div style="padding:20px;text-align:center;width:100%;">
           <img src="${blobUrl}"
             style="max-width:100%;max-height:72vh;border-radius:8px;
               box-shadow:0 4px 24px rgba(0,0,0,0.5);object-fit:contain;"
-            alt="${window.escapeHtml(fileName)}">
+            alt="${window.escapeHtml(fileName)}"
+            onerror="this.parentElement.innerHTML='<div style=\\'color:#fff;padding:40px;text-align:center;\\'><div style=\\'font-size:36px;margin-bottom:14px;\\'>⚠️</div><div style=\\'font-size:14px;opacity:.75;margin-bottom:20px;\\'>This image format can\\'t be previewed in-browser.</div><a href=\\'${blobUrl}\\' download=\\'${window.escapeHtml(fileName)}\\' class=\\'btn btn-primary\\'>⬇️ Download to View</a></div>'">
         </div>`;
     } else if (isPDF) {
       content.innerHTML = `
         <iframe src="${blobUrl}#toolbar=1&navpanes=1"
-          style="width:100%;height:76vh;border:none;display:block;"
+          style="width:100%;height:72vh;border:none;display:block;"
           title="${window.escapeHtml(fileName)}">
-        </iframe>`;
+        </iframe>
+        <div style="text-align:center;padding:8px;background:#111827;">
+          <a href="${blobUrl}" target="_blank" rel="noopener"
+            style="color:#9ca3af;font-size:12px;text-decoration:underline;">
+            PDF not showing? Open in new tab ↗
+          </a>
+        </div>`;
     } else {
       const ext = fileName.split('.').pop().toUpperCase();
       content.innerHTML = `
@@ -585,10 +598,10 @@ function paymentBadge(policy) {
   const premium = policy.premiumAmount || 0;
   const paid    = policy.amountPaid    || 0;
   if (policy.paid || (paid >= premium && premium > 0)) {
-    return `<span class="pay-badge pay-badge-paid">✓ Paid (₹${window.fmt.currency(paid)})</span>`;
+    return `<span class="pay-badge pay-badge-paid">✓ Paid (${window.fmt.currency(paid)})</span>`;
   } else if (paid > 0) {
     const pct = Math.round((paid / premium) * 100);
-    return `<span class="pay-badge pay-badge-partial">⬤ ${pct}% (₹${window.fmt.currency(paid)})</span>`;
+    return `<span class="pay-badge pay-badge-partial">⬤ ${pct}% (${window.fmt.currency(paid)})</span>`;
   } else {
     return `<span class="pay-badge pay-badge-unpaid">○ Unpaid</span>`;
   }
@@ -611,7 +624,7 @@ function _isAlreadyRenewed(policy) {
 
 function renderPolicyRows(data, isAdmin) {
   if (!data.length) {
-    return `<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted);">
+    return `<tr><td colspan="11" style="text-align:center;padding:32px;color:var(--text-muted);">
       No policies found${getDateFilterForCurrentTab().start || getDateFilterForCurrentTab().end ? ' matching the date filter' : ''}</td></tr>`;
   }
   return data.map(policy => {
@@ -632,6 +645,7 @@ function renderPolicyRows(data, isAdmin) {
       <td onclick="window.showPolicyDetail('${policy.id}')">${window.escapeHtml(policy.companyName)       || '—'}</td>
       <td onclick="window.showPolicyDetail('${policy.id}')">${window.escapeHtml(policy.providerName)      || '—'}</td>
       <td onclick="window.showPolicyDetail('${policy.id}')">${window.escapeHtml(policy.insuranceTypeName) || '—'}</td>
+      <td onclick="window.showPolicyDetail('${policy.id}')">${policy.insuranceItemName ? window.escapeHtml(policy.insuranceItemName) : '<span class="text-muted">—</span>'}</td>
       <td onclick="window.showPolicyDetail('${policy.id}')"><strong class="mono">${window.fmt.currency(policy.premiumAmount || 0)}</strong></td>
       <td onclick="window.showPolicyDetail('${policy.id}')">${paymentBadge(policy)}</td>
       <td onclick="window.showPolicyDetail('${policy.id}')">
@@ -832,7 +846,6 @@ async function showPolicyDetail(id) {
       ${_dCard('End Date',       updatedPolicy.endDate
           ? `<span style="${isExpired ? 'color:var(--red);font-weight:700;' : ''}">${window.fmt.date(updatedPolicy.endDate)}</span>` : '—')}
       ${_dCard('Hypothecation',  window.escapeHtml(updatedPolicy.hypothecationName) || (updatedPolicy.hypothecationId ? '✅ Yes' : '❌ No'))}
-      ${_dCard('Reference',      window.escapeHtml(updatedPolicy.description)       || '<span class="text-muted">—</span>')}
     </div>
 
     <div class="payment-section">
@@ -843,6 +856,7 @@ async function showPolicyDetail(id) {
         ${updatedPolicy.paidDate         ? _dCard('Paid Date',     window.fmt.date(updatedPolicy.paidDate)) : ''}
         ${updatedPolicy.paymentMode      ? _dCard('Payment Mode',  updatedPolicy.paymentMode.replace(/_/g,' ')) : ''}
         ${updatedPolicy.paymentReference ? _dCard('Reference No.', `<span class="mono">${window.escapeHtml(updatedPolicy.paymentReference)}</span>`) : ''}
+        ${updatedPolicy.description      ? _dCard('Reference / Notes', window.escapeHtml(updatedPolicy.description)) : ''}
       </div>
       ${updatedPolicy.premiumAmount > 0 ? `
       <div style="margin-top:12px;">
@@ -1171,11 +1185,6 @@ function buildPolicyModal() {
             ${_makeDateInput('pol-end-date')}
           </div>
 
-          <div class="form-group" style="grid-column:1/-1;">
-            <label>Reference / Notes</label>
-            <input type="text" id="pol-reference" placeholder="Reference number or notes">
-          </div>
-
           <div class="pol-section-title">💰 Payment Details</div>
 
           <div class="form-group">
@@ -1203,6 +1212,10 @@ function buildPolicyModal() {
           <div class="form-group">
             <label>Transaction / Reference No.</label>
             <input type="text" id="pol-payment-reference" placeholder="UTR / Cheque / Transaction ID">
+          </div>
+          <div class="form-group" style="grid-column:1/-1;">
+            <label>Reference / Notes</label>
+            <input type="text" id="pol-reference" placeholder="Reference number or notes">
           </div>
           <div class="form-group" style="grid-column:1/-1;">
             <label>Payment Slip / Receipt</label>
@@ -1493,7 +1506,6 @@ async function submitPolicy() {
     let method;
 
     if (isRenewal) {
-      // Use renewal endpoint
       url = window.api.buildUrl(`v1/policies/${_renewingFromId}/renew`);
       method = 'POST';
     } else if (id) {
@@ -1671,4 +1683,4 @@ window.closePolicyModal          = closePolicyModal;
 window.applyDateFilter           = applyDateFilter;
 window.clearDateFilter           = clearDateFilter;
 
-console.log('✅ Policies loaded | Renew API integrated | Blob-fetch viewer | Fully responsive');
+console.log('✅ Policies loaded | Renew API integrated | Blob-fetch viewer | Fully responsive | Reference moved into Payment Details');

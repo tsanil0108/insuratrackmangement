@@ -1208,82 +1208,43 @@ async function _renderGraphCharts(policies, analytics) {
     </tr>`;
   }).join('');
 
-  // ── Insurance Items Aggregates ─────────────────────────────
-  let itemsData = [];
-  try {
-    const allResult = await api.get('v1/insurance-items/all').catch(err => {
-      console.warn('⚠️ /all endpoint failed, trying default:', err?.message || err);
-      return null;
-    });
-    if (Array.isArray(allResult)) {
-      itemsData = allResult;
+  // ── Insurance Items Aggregates (only items actually used on policies) ──
+  // Previously this pulled the full master Insurance Items catalog and showed
+  // active/inactive counts unrelated to real usage. Now it reflects exactly
+  // what's been added to policies — same source as the policy table.
+  const itemUsage = {}; // itemName -> { count, premium, paid, typeName }
+  let policiesWithItem = 0, policiesWithoutItem = 0;
+
+  policies.forEach(p => {
+    const itemName = p.insuranceItemName;
+    if (itemName) {
+      policiesWithItem++;
+      const typeName = p.insuranceTypeName || p.insuranceType?.name || 'Unknown';
+      if (!itemUsage[itemName]) itemUsage[itemName] = { count: 0, premium: 0, paid: 0, typeName };
+      itemUsage[itemName].count++;
+      itemUsage[itemName].premium += (p.premiumAmount || 0);
+      itemUsage[itemName].paid    += (p.amountPaid || 0);
     } else {
-      const defaultResult = await api.get('v1/insurance-items').catch(err => {
-        console.warn('⚠️ Default items endpoint also failed:', err?.message || err);
-        return null;
-      });
-      itemsData = Array.isArray(defaultResult) ? defaultResult : [];
+      policiesWithoutItem++;
     }
-  } catch(e) {
-    console.error('❌ Failed to load insurance items:', e);
-    itemsData = [];
-  }
-
-  const companyTypeIds   = new Set(policies.map(p => p.insuranceType?.id).filter(Boolean));
-  const companyTypeNames = new Set(
-    policies.map(p => p.insuranceTypeName || p.insuranceType?.name).filter(Boolean)
-  );
-  const hasTypeFilter = companyTypeIds.size > 0 || companyTypeNames.size > 0;
-
-  const relevantItems = itemsData.filter(item => {
-    if (!item.insuranceType || !item.insuranceType.id) return true;
-    if (!hasTypeFilter) return true;
-    const itemTypeId   = item.insuranceType.id;
-    const itemTypeName = item.insuranceType.name;
-    return (itemTypeId   && companyTypeIds.has(itemTypeId))
-        || (itemTypeName && companyTypeNames.has(itemTypeName));
   });
 
-  const isActive = i => i.active === true || i.active === 'true' || i.active === 1;
+  const itemNamesSorted = Object.keys(itemUsage).sort((a, b) => itemUsage[b].count - itemUsage[a].count);
+  const itemTypesCovered = new Set(itemNamesSorted.map(n => itemUsage[n].typeName)).size;
+  const itemChartH = Math.max(140, itemNamesSorted.length * 40);
 
-  const itemActiveCount   = relevantItems.filter(isActive).length;
-  const itemInactiveCount = relevantItems.filter(i => !isActive(i)).length;
-
-  const itemsByType = {};
-  relevantItems.forEach(item => {
-    const t = item.insuranceType?.name || 'No Type Assigned';
-    if (!itemsByType[t]) itemsByType[t] = { active: 0, inactive: 0 };
-    if (isActive(item)) itemsByType[t].active++;
-    else                itemsByType[t].inactive++;
-  });
-
-  const itemTypeLabels  = Object.keys(itemsByType).sort((a,b) =>
-    (itemsByType[b].active + itemsByType[b].inactive) - (itemsByType[a].active + itemsByType[a].inactive)
-  );
-  const itemTypeActives = itemTypeLabels.map(t => itemsByType[t].active);
-  const itemTypeInacts  = itemTypeLabels.map(t => itemsByType[t].inactive);
-  const itemChartH      = Math.max(140, itemTypeLabels.length * 46);
-
-  const sortedItems   = [...relevantItems].sort((a, b) => (isActive(b) ? 1 : 0) - (isActive(a) ? 1 : 0));
-  const itemTableRows = sortedItems.map(item => `
-    <tr style="border-bottom:1px solid var(--border,#f0f0f0);">
-      <td style="padding:8px 10px;font-weight:600;font-size:12px;">${window.escapeHtml(item.name || '—')}</td>
-      <td style="padding:8px 6px;font-size:12px;color:var(--text-muted);">
-        ${item.insuranceType?.name
-          ? window.escapeHtml(item.insuranceType.name)
-          : '<span style="color:var(--text-muted);font-style:italic;">No Type</span>'}
-      </td>
-      <td style="padding:8px 6px;font-size:12px;">
-        ${item.description
-          ? window.escapeHtml(item.description.substring(0,40)) + (item.description.length > 40 ? '…' : '')
-          : '<span style="color:var(--text-muted)">—</span>'}
-      </td>
-      <td style="padding:8px 6px;">
-        ${isActive(item)
-          ? '<span class="co-badge-active">● Active</span>'
-          : '<span class="co-badge-expired">● Inactive</span>'}
-      </td>
-    </tr>`).join('');
+  const itemTableRows = itemNamesSorted.map(name => {
+    const d = itemUsage[name];
+    const share = policiesWithItem > 0 ? Math.round((d.count / policiesWithItem) * 100) : 0;
+    return `<tr style="border-bottom:1px solid var(--border,#f0f0f0);">
+      <td style="padding:8px 10px;font-weight:600;font-size:12px;">${window.escapeHtml(name)}</td>
+      <td style="padding:8px 6px;font-size:12px;color:var(--text-muted);">${window.escapeHtml(d.typeName)}</td>
+      <td style="padding:8px 6px;text-align:center;font-weight:700;color:var(--accent);font-size:13px;">${d.count}</td>
+      <td style="padding:8px 6px;text-align:right;font-size:12px;">${fmtINR(d.premium)}</td>
+      <td style="padding:8px 6px;text-align:right;font-size:12px;color:#10b981;font-weight:600;">${fmtINR(d.paid)}</td>
+      <td style="padding:8px 6px;text-align:center;font-size:12px;">${share}%</td>
+    </tr>`;
+  }).join('');
 
   // ── HTML Output ───────────────────────────────────────────
   area.innerHTML = `
@@ -1447,59 +1408,59 @@ async function _renderGraphCharts(policies, analytics) {
       <div class="co-section-divider-line"></div>
     </div>
 
-    ${relevantItems.length === 0 ? `
+    ${itemNamesSorted.length === 0 ? `
     <div class="co-chart-card" style="text-align:center;padding:32px;color:var(--text-muted);">
       <div style="font-size:32px;margin-bottom:8px;">📭</div>
-      <div style="font-size:13px;">No insurance items found. Add items in the Insurance Items section.</div>
+      <div style="font-size:13px;">No insurance item has been added to any policy yet.</div>
     </div>` : `
 
     <!-- Items KPI Cards -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:16px;">
       <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;border-top:3px solid #8b5cf6;">
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">📦 Total Items</div>
-        <div style="font-size:22px;font-weight:800;color:#8b5cf6;">${relevantItems.length}</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">📦 Items in Use</div>
+        <div style="font-size:22px;font-weight:800;color:#8b5cf6;">${itemNamesSorted.length}</div>
       </div>
       <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;border-top:3px solid #10b981;">
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">✅ Active Items</div>
-        <div style="font-size:22px;font-weight:800;color:#10b981;">${itemActiveCount}</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">✅ Policies With Item</div>
+        <div style="font-size:22px;font-weight:800;color:#10b981;">${policiesWithItem}</div>
       </div>
       <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;border-top:3px solid #ef4444;">
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">❌ Inactive Items</div>
-        <div style="font-size:22px;font-weight:800;color:#ef4444;">${itemInactiveCount}</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">❌ Policies Without Item</div>
+        <div style="font-size:22px;font-weight:800;color:#ef4444;">${policiesWithoutItem}</div>
       </div>
       <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;border-top:3px solid #f59e0b;">
         <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">🏷️ Types Covered</div>
-        <div style="font-size:22px;font-weight:800;color:#f59e0b;">${itemTypeLabels.length}</div>
+        <div style="font-size:22px;font-weight:800;color:#f59e0b;">${itemTypesCovered}</div>
       </div>
     </div>
 
-    <!-- Items Charts: Stacked Bar + Donut -->
+    <!-- Items Charts: Usage Bar + With/Without Donut -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:16px;">
       <div class="co-chart-card">
-        <div class="co-chart-title">📊 Items by Insurance Type</div>
-        <div class="co-chart-subtitle">Active vs inactive items per type</div>
+        <div class="co-chart-title">📊 Policies per Insurance Item</div>
+        <div class="co-chart-subtitle">How many policies have each item added</div>
         <div style="position:relative;height:${itemChartH}px;"><canvas id="gc-items-type"></canvas></div>
       </div>
       <div class="co-chart-card">
-        <div class="co-chart-title">🔵 Active vs Inactive Items</div>
-        <div class="co-chart-subtitle">Overall item status distribution</div>
+        <div class="co-chart-title">🔵 Item Assigned vs Not Assigned</div>
+        <div class="co-chart-subtitle">Policies with an insurance item added vs without</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
           <div class="co-pay-card" style="background:#f0fdf4;border:1px solid #bbf7d0;">
-            <div class="co-pay-label" style="color:#16a34a;">✅ Active</div>
-            <div class="co-pay-count" style="color:#16a34a;">${itemActiveCount}</div>
-            <div class="co-pay-amt"   style="color:#16a34a;">${relevantItems.length > 0 ? Math.round(itemActiveCount/relevantItems.length*100) : 0}%</div>
+            <div class="co-pay-label" style="color:#16a34a;">✅ With Item</div>
+            <div class="co-pay-count" style="color:#16a34a;">${policiesWithItem}</div>
+            <div class="co-pay-amt"   style="color:#16a34a;">${policies.length > 0 ? Math.round(policiesWithItem/policies.length*100) : 0}%</div>
           </div>
           <div class="co-pay-card" style="background:#fef2f2;border:1px solid #fecaca;">
-            <div class="co-pay-label" style="color:#dc2626;">❌ Inactive</div>
-            <div class="co-pay-count" style="color:#dc2626;">${itemInactiveCount}</div>
-            <div class="co-pay-amt"   style="color:#dc2626;">${relevantItems.length > 0 ? Math.round(itemInactiveCount/relevantItems.length*100) : 0}%</div>
+            <div class="co-pay-label" style="color:#dc2626;">❌ Without Item</div>
+            <div class="co-pay-count" style="color:#dc2626;">${policiesWithoutItem}</div>
+            <div class="co-pay-amt"   style="color:#dc2626;">${policies.length > 0 ? Math.round(policiesWithoutItem/policies.length*100) : 0}%</div>
           </div>
         </div>
         <div style="position:relative;height:180px;">
           <canvas id="gc-items-donut"></canvas>
           <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;">
-            <div style="font-size:22px;font-weight:800;line-height:1;">${relevantItems.length}</div>
-            <div style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-top:2px;">Items</div>
+            <div style="font-size:22px;font-weight:800;line-height:1;">${policies.length}</div>
+            <div style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-top:2px;">Policies</div>
           </div>
         </div>
       </div>
@@ -1508,17 +1469,19 @@ async function _renderGraphCharts(policies, analytics) {
     <!-- Items Detail Table -->
     <div class="co-chart-card">
       <div class="co-chart-title">📋 Insurance Items Detail</div>
-      <div class="co-chart-subtitle">All items linked to this company's policy types (active first)</div>
+      <div class="co-chart-subtitle">Items actually added on policies, busiest first</div>
       <div style="overflow-x:auto;">
         <table style="width:100%;border-collapse:collapse;font-size:12px;">
           <thead><tr style="background:var(--bg-elevated,#f8fafc);">
             <th style="padding:9px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--border);">Item Name</th>
             <th style="padding:9px 6px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--border);">Insurance Type</th>
-            <th style="padding:9px 6px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--border);">Description</th>
-            <th style="padding:9px 6px;text-align:center;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--border);">Status</th>
+            <th style="padding:9px 6px;text-align:center;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--border);">Policies</th>
+            <th style="padding:9px 6px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--border);">Premium</th>
+            <th style="padding:9px 6px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--border);">Paid</th>
+            <th style="padding:9px 6px;text-align:center;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--border);">Share</th>
           </tr></thead>
           <tbody>
-            ${itemTableRows || '<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--text-muted);">No items found</td></tr>'}
+            ${itemTableRows || '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--text-muted);">No items found</td></tr>'}
           </tbody>
         </table>
       </div>
@@ -1624,33 +1587,32 @@ async function _renderGraphCharts(policies, analytics) {
 
   // ── INSURANCE ITEMS CHARTS ────────────────────────────────
 
-  // 8. Items by type
+  // 8. Policies per item (actual usage)
   const itemsTypeCtx = document.getElementById('gc-items-type');
-  if (itemsTypeCtx && itemTypeLabels.length) {
+  if (itemsTypeCtx && itemNamesSorted.length) {
     window._companyCharts.itemsType = new Chart(itemsTypeCtx, {
       type: 'bar',
       data: {
-        labels: itemTypeLabels,
+        labels: itemNamesSorted,
         datasets: [
-          { label:'Active',   data:itemTypeActives, backgroundColor:'rgba(16,185,129,.85)', borderRadius:4 },
-          { label:'Inactive', data:itemTypeInacts,  backgroundColor:'rgba(239,68,68,.7)',   borderRadius:4 }
+          { label:'Policies', data:itemNamesSorted.map(n => itemUsage[n].count), backgroundColor: itemNamesSorted.map((_,i)=>palette[i%palette.length]), borderRadius:4 }
         ]
       },
       options: {
         indexAxis: 'y', ...baseOpts,
-        plugins: { legend:{ position:'top', labels:{ padding:14, font:{size:12} } }, tooltip:{ callbacks:{ label: ctx => ` ${ctx.dataset.label}: ${ctx.raw} item${ctx.raw===1?'':'s'}` } } },
-        scales: { x:{ beginAtZero:true, stacked:false, ticks:{ stepSize:1, font:{size:11} }, grid:{color:'rgba(0,0,0,.05)'} }, y:{ ticks:{ font:{size:11}, callback:function(v){ const l=this.getLabelForValue(v); return l.length>22?l.substring(0,20)+'…':l; } } } }
+        plugins: { legend:{ display:false }, tooltip:{ callbacks:{ label: ctx => ` ${ctx.raw} polic${ctx.raw===1?'y':'ies'}` } } },
+        scales: { x:{ beginAtZero:true, ticks:{ stepSize:1, font:{size:11} }, grid:{color:'rgba(0,0,0,.05)'} }, y:{ ticks:{ font:{size:11}, callback:function(v){ const l=this.getLabelForValue(v); return l.length>22?l.substring(0,20)+'…':l; } } } }
       }
     });
   }
 
-  // 9. Items Active/Inactive donut
+  // 9. Policies with item vs without donut
   const itemsDonutCtx = document.getElementById('gc-items-donut');
-  if (itemsDonutCtx && relevantItems.length) {
+  if (itemsDonutCtx && policies.length) {
     window._companyCharts.itemsDonut = new Chart(itemsDonutCtx, {
       type: 'doughnut',
-      data: { labels:['Active','Inactive'], datasets:[{ data:[itemActiveCount, itemInactiveCount], backgroundColor:['#10b981','#ef4444'], borderWidth:2, borderColor:'transparent' }] },
-      options: { ...baseOpts, cutout:'68%', plugins:{ legend:{ position:'bottom', labels:{ padding:16, font:{size:12} } }, tooltip:{ callbacks:{ label: ctx => ` ${ctx.label}: ${ctx.raw} item${ctx.raw===1?'':'s'}` } } } }
+      data: { labels:['With Item','Without Item'], datasets:[{ data:[policiesWithItem, policiesWithoutItem], backgroundColor:['#10b981','#ef4444'], borderWidth:2, borderColor:'transparent' }] },
+      options: { ...baseOpts, cutout:'68%', plugins:{ legend:{ position:'bottom', labels:{ padding:16, font:{size:12} } }, tooltip:{ callbacks:{ label: ctx => ` ${ctx.label}: ${ctx.raw} polic${ctx.raw===1?'y':'ies'}` } } } }
     });
   }
 }

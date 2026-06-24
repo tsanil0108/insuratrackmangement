@@ -40,6 +40,7 @@ function navigate(page, skipHistory = false) {
     export:         'Export Data',
     recycle:        'Recycle Bin',
     users:          'User Management',
+    backups:        'Backup & Restore',  // ✅ ADDED
   };
   const titleEl = document.getElementById('navbar-title');
   if (titleEl) titleEl.textContent = titles[page] || 'InsuraTrack';
@@ -56,6 +57,7 @@ function navigate(page, skipHistory = false) {
     insuranceItems: () => { if (typeof initInsuranceItems === 'function') initInsuranceItems(); },
     hypothecations: () => { if (typeof loadHypothecations === 'function') loadHypothecations(); },
     export:         () => { if (typeof loadExport         === 'function') loadExport();         },
+    backups:        () => { if (typeof loadBackups        === 'function') loadBackups();        },  // ✅ ADDED
     recycle:        () => {
       if (authUtils.isAdmin() && typeof loadRecycleBin === 'function') loadRecycleBin();
       else navigate('dashboard');
@@ -132,6 +134,7 @@ function renderLayout() {
           <div class="nav-section-label" style="margin-top:8px">User Management</div>
           <div class="nav-item" data-page="users"   onclick="navigate('users')"  >${navIcon('users')} Users</div>
           <div class="nav-section-label" style="margin-top:8px">Tools</div>
+          <div class="nav-item" data-page="backups" onclick="navigate('backups')">${navIcon('backup')} Backup</div>  <!-- ✅ ADDED -->
           <div class="nav-item" data-page="recycle" onclick="navigate('recycle')">${navIcon('trash')} Recycle Bin</div>
         ` : ''}
       </nav>
@@ -170,7 +173,7 @@ function renderLayout() {
           </svg>
         </div>
 
-        <!-- ✅ Bell icon with unread count badge -->
+        <!-- Bell icon with unread count badge -->
         <div class="nav-icon-btn" onclick="toggleNotifPanel()" title="Notifications"
           style="position:relative;">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -203,7 +206,7 @@ function renderLayout() {
       </div>
     </header>
 
-    <!-- ✅ Notification Panel -->
+    <!-- Notification Panel -->
     <div class="notif-dropdown hidden" id="notif-panel" style="
       position:fixed;
       top:60px; right:16px;
@@ -281,6 +284,7 @@ function navIcon(name) {
     download:      `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
     trash:         `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>`,
     users:         `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
+    backup:        `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>`,
   };
   return icons[name] || '';
 }
@@ -331,10 +335,8 @@ async function loadNotifications() {
   if (!notifList) return;
 
   try {
-    // ✅ Calls GET /api/v1/notifications/my — returns List<NotificationDTO>
     const notifications = await api.get('v1/notifications/my');
 
-    // ✅ Handle null/empty
     if (!notifications || !Array.isArray(notifications) || notifications.length === 0) {
       notifList.innerHTML = `
         <div style="padding:40px 20px;text-align:center;color:#9ca3af;">
@@ -345,7 +347,6 @@ async function loadNotifications() {
       return;
     }
 
-    // ✅ Update unread badge
     const unreadCount = notifications.filter(n => !n.read).length;
     if (notifDot) {
       if (unreadCount > 0) {
@@ -356,7 +357,6 @@ async function loadNotifications() {
       }
     }
 
-    // ✅ Render each notification
     notifList.innerHTML = notifications.map(n => `
       <div onclick="markNotificationRead('${n.id}')"
         style="
@@ -373,13 +373,11 @@ async function loadNotifications() {
         onmouseenter="this.style.background='var(--bg-hover,#f9fafb)'"
         onmouseleave="this.style.background='${n.read ? 'transparent' : getNotificationBg(n.type)}'">
 
-        <!-- Unread dot -->
         ${!n.read ? `<span style="
           position:absolute;left:6px;top:50%;transform:translateY(-50%);
           width:6px;height:6px;border-radius:50%;background:#3b82f6;flex-shrink:0;">
         </span>` : ''}
 
-        <!-- Icon -->
         <div style="
           font-size:20px;
           flex-shrink:0;
@@ -390,7 +388,6 @@ async function loadNotifications() {
           ${getNotificationIcon(n.type)}
         </div>
 
-        <!-- Content -->
         <div style="flex:1;min-width:0;">
           <div style="
             font-weight:${n.read ? '500' : '700'};
@@ -415,7 +412,6 @@ async function loadNotifications() {
           </div>
         </div>
 
-        <!-- Delete button -->
         <button onclick="event.stopPropagation(); deleteNotification('${n.id}')"
           title="Delete"
           style="
@@ -479,18 +475,12 @@ function toggleNotifPanel() {
   if (!panel) return;
   const isHidden = panel.classList.contains('hidden');
   panel.classList.toggle('hidden');
-  // ✅ Load fresh notifications every time panel opens
   if (isHidden) loadNotifications();
 }
 
 function initNotifications() {
-  // ✅ Load on startup after 1s delay (layout must be ready)
   setTimeout(loadNotifications, 1000);
-
-  // ✅ Auto-refresh every 60 seconds
   setInterval(loadNotifications, 60_000);
-
-  // ✅ Close panel on outside click
   document.addEventListener('click', (e) => {
     const panel = document.getElementById('notif-panel');
     const bellBtn = e.target.closest('[onclick="toggleNotifPanel()"]');

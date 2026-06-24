@@ -15,7 +15,7 @@ window.API_BASE = (() => {
   }
 
   // 🌍 Production
-  return 'https://insuratrack-8.onrender.com';
+  return 'https://insuratrack.leadershipfirst.in';
 })();
   window.api = {
     token() {
